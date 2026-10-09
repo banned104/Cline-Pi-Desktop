@@ -1,0 +1,23 @@
+# 依赖
+node_modules/
+
+# 凭据 —— 永远不要提交
+.env
+.env.*
+*.key
+*.pem
+
+# 编辑器 / IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# 操作系统
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 说明：本仓库需要分发打包好的 .piplug（dist/ 与根目录各一份），
+# 因此这里**不**忽略 dist/。若将来改为只在 GitHub Release 分发，
+# 可在下面加回一行 `dist/`。
