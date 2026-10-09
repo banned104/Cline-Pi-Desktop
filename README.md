@@ -1,183 +1,112 @@
 # PI-Desktop ClinePass 插件
 
+把 Cline 的 **ClinePass** 订阅声明成 PI-Desktop 的一个 provider，走 Cline 的 OpenAI 兼容
+Chat Completions 接口。
+
 [English](./README.en.md) | **简体中文**
 
-让 PI-Desktop 通过 **ClinePass** 订阅调用 Cline 提供的一组编码模型。
+> ⚠️ 第三方非官方插件，与 Cline（cline.bot）官方无任何关系。使用前请确认你有有效的 ClinePass
+> 订阅，并遵守 Cline 的服务条款。
 
-> ⚠️ **本项目为第三方非官方插件**，与 Cline（cline.bot）官方无任何关系。
-> 使用前请确认你已拥有有效的 ClinePass 订阅，并遵守 Cline 的服务条款。
+## 它做什么
 
----
+`manifest.json` 只贡献一个 provider（`contributes.providers`）：
 
-## 简介
-
-ClinePass 是 Cline 推出的 **$9.99/月** 订阅，在精选开源编码模型上提供相对标准 API 费率 **2–5 倍**的额度。
-Cline 官方支持在 Cline 之外调用它（见 [官方文档](https://docs.cline.bot/getting-started/clinepass) 的
-"Using ClinePass outside of Cline" 一节），接口是标准的 OpenAI 兼容 Chat Completions。
-
-本插件把这个订阅接进 PI-Desktop：装完之后，PI-Desktop 的模型列表里会出现 ClinePass 的全部模型，直接用即可。
-
-**特性**
-
-- 声明式插件，不执行任何自定义代码，权限只申请 `provider.register`
-- 内置 14 个 ClinePass 模型，无需手动填写模型 ID
-- 部分模型带**官方 reasoning 档位**（思考强度可调）
-- 启动时自动对账，Cline 更新模型后只需更新插件
-
----
-
-## 前置条件
-
-| 项目 | 说明 |
+| 字段 | 值 |
 | --- | --- |
-| PI-Desktop | 需支持插件与 `contributes.providers` |
-| ClinePass 订阅 | $9.99/月，在 [app.cline.bot](https://app.cline.bot/dashboard/subscription?personal=true) 订阅 |
-| API Key | 在 app.cline.bot → **Settings → API Keys** 生成 |
+| id | `clinepass` |
+| apiStyle | `chat_completions` |
+| authKind | `api_key` |
+| baseUrl | `https://api.cline.bot/api/v1` |
+| models | ClinePass 的 14 个 slug，写死 |
 
----
+host-core 在加载时按这份声明建立 provider 行，并在每次启动时重新对账，模型无需手工录入。
+`main.js` 是**刻意的空实现**（manifest 的 `main` 字段必填，且所指文件必须存在）。
 
-## 目录结构
+下面所有数字 —— 模型清单、上下文窗口、输出上限、能力、思考档位 —— 都取自 **Cline 官方目录**，
+不是第三方索引：
 
-```
-.
-├── manifest.json   插件全部内容：provider 声明 + 模型列表 + thinking 档位
-├── main.js         空实现
-└── README.md
-```
-
-**为什么 `main.js` 是空的？**
-
-Provider 属于 PI-Desktop 的**声明式贡献**：host-core 加载插件时直接读
-`manifest.json` 的 `contributes.providers`，据此在数据库里建立 provider 行，并在每次启动时重新对账。
-整个过**不需要 `main.js` 执行任何代码**。
-
-但 `main.js` 又不能省略，因为：`manifest.json` 的 `"main"` 字段是必填，且所指文件必须真实存在，
-否则加载会报 `PLUGIN_LOAD_FAILED: main entry missing`。因此这里放了一个空壳来满足契约。
-
-> 也就是说：**功能上只有 `manifest.json` 是必需的**，`main.js` 是形式要求。
-
----
+- `sdk/packages/llms/src/catalog/catalog.generated.ts` 的 `"cline-pass"` 块：
+  `contextWindow`、`maxInputTokens`、`maxTokens`、`capabilities`、`reasoningOptions`；
+- `sdk/packages/llms/src/catalog/cline-recommended.generated.ts` 的 `clinePass` 推荐列表，
+  正好就是这 14 个 slug；
+- `sdk/packages/shared/src/llms/reasoning-options.ts` 的档位词表
+  （`none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`），以及
+  `reasoning_effort` 只接受除 `none` 以外的档位。
 
 ## 安装
 
 1. 打开 PI-Desktop → **设置 → 插件（Plugins）**
-2. 点击 **Load local plugin**（加载本地插件）
-3. 选中本插件所在目录
-4. 批准 `provider.register` 权限
+2. 用 **Install from folder** 选中本目录
+3. 批准 `provider.register` 权限
 
----
+## 填凭据
 
-## 配置 API Key
+API Key **不在本包内**，它保存在应用的安全存储里：
 
-API Key **不包含在本插件里**，它保存在应用的安全存储中：
+1. **设置 → Providers（服务商）**，找到 **ClinePass**
+2. 粘贴你的 Cline API Key（在 `app.cline.bot` → Settings → API Keys 生成）
+3. 保存
 
-1. 打开 **设置 → Providers（服务商）**
-2. 找到 **ClinePass**
-3. 粘贴你的 Cline API Key
-4. 保存
+端点与 Cline 自己的客户端一致（`api.cline.bot` + `/api/v1`），Key 以
+`Authorization: Bearer <key>` 发送。Cline 自家也是把 ClinePass provider 注册在这个端点上、
+用同一个 `CLINE_API_KEY`，所以这里不需要改路径或加 header。
 
-然后就可以在模型选择器里选 ClinePass 的模型了。
+## 模型
 
----
+请求里的 `model` 字段用完整 slug。Claude **不属于** ClinePass —— 它在 `anthropic/*` 下按量付费。
 
-## 模型列表
+| 模型 | Model ID | 上下文窗口 | 最大输出 | 图片 |
+| --- | --- | --- | --- | --- |
+| GLM-5.3 | `cline-pass/glm-5.3` | 1,048,576 | 943,718 | — |
+| GLM-5.3-Flash | `cline-pass/glm-5.3-flash` | 1,048,576 | 943,717 | ✓ |
+| Kimi K3 | `cline-pass/kimi-k3` | 1,048,576 | 943,718 | ✓ |
+| DeepSeek V4 Pro | `cline-pass/deepseek-v4-pro` | 1,048,576 | 384,000 | — |
+| DeepSeek V4.1 Flash | `cline-pass/deepseek-v4.1-flash` | 1,048,576 | 943,718 | ✓ |
+| Muse Spark 1.3 Contributor | `cline-pass/muse-spark-1.3-contributor` | 1,048,576 | 943,718 | ✓ |
+| MiMo-V2.5 | `cline-pass/mimo-v2.5` | 1,050,000 | 131,072 | ✓ |
+| MiMo-V2.5-Pro | `cline-pass/mimo-v2.5-pro` | 1,050,000 | 131,072 | — |
+| MiMo-V2.6-Flash | `cline-pass/mimo-v2.6-flash` | 1,050,000 | 131,072 | ✓ |
+| MiMo-V2.6-Pro | `cline-pass/mimo-v2.6-pro` | 1,050,000 | 131,072 | ✓ |
+| MiniMax-M3 | `cline-pass/minimax-m3` | 1,048,576 | 512,000 | ✓ |
+| Qwen3.7 Max | `cline-pass/qwen3.7-max` | 1,000,000 | 131,072 | — |
+| Qwen3.7 Plus | `cline-pass/qwen3.7-plus` | 1,000,000 | 131,072 | ✓ |
+| Qwen3.8 Max | `cline-pass/qwen3.8-max` | 128,000 | 8,192 | — |
 
-| 模型 | Model ID | 上下文 |
-| --- | --- | --- |
-| GLM-5.3 | `cline-pass/glm-5.3` | 1,310,720 |
-| GLM-5.3-Flash | `cline-pass/glm-5.3-flash` | 1,310,720 |
-| Kimi K3 | `cline-pass/kimi-k3` | 1,048,576 |
-| DeepSeek V4 Pro | `cline-pass/deepseek-v4-pro` | 1,048,576 |
-| DeepSeek V4.1 Flash | `cline-pass/deepseek-v4.1-flash` | 1,048,576 |
-| MiMo-V2.5 | `cline-pass/mimo-v2.5` | 1,050,000 |
-| MiMo-V2.5-Pro | `cline-pass/mimo-v2.5-pro` | 1,050,000 |
-| MiMo-V2.6-Flash | `cline-pass/mimo-v2.6-flash` | 1,048,576 |
-| MiMo-V2.6-Pro | `cline-pass/mimo-v2.6-pro` | 1,048,576 |
-| MiniMax-M3 | `cline-pass/minimax-m3` | 1,048,576 |
-| Muse Spark 1.3 Contributor | `cline-pass/muse-spark-1.3-contributor` | 1,048,576 |
-| Qwen3.7 Max | `cline-pass/qwen3.7-max` | 1,000,000 |
-| Qwen3.7 Plus | `cline-pass/qwen3.7-plus` | 1,000,000 |
-| Qwen3.8 Max | `cline-pass/qwen3.8-max` | 128,000 |
+注意 Qwen3.8 Max 确实是里面最小的一条：官方目录给它的窗口只有 128K、输出上限 8,192，
+远低于其他 Qwen 线路。
 
-> 模型列表来自 Cline CLI 自带的注册表（`@cline/llms`）。Cline 可能随时增删模型，
-> 如发现过期请提 issue 或更新 `manifest.json`。
+**两个长度都能自己改。** 在 **设置 → Providers → ClinePass** 里，每个模型行都有自己的
+上下文窗口与最大输出字段：默认跟随上表的公布值（`contextWindowSource: "catalog"`），
+你一旦编辑就变成你的值（`"user"`）。可以改的是 PI-Desktop 据以规划的长度；真实上限仍然由
+Cline 一侧决定，所以把数字调高于公布值并不会真的多出上下文。
 
-**ClinePass 不包含 Claude。** Claude 系列在 Cline 里属于 `anthropic/*`，走的是**按量付费**，
-与本订阅无关。
+旧目录里还有四个 slug —— `cline-pass/glm-5.2`、`cline-pass/kimi-k2.6`、
+`cline-pass/kimi-k2.7-code`、`cline-pass/deepseek-v4-flash` —— 官方当前目录里**没有**它们，
+所以这里不声明：选了只会得到 model not found。
 
----
+## 思考强度
 
-## 思考强度（Thinking Levels）
-
-各模型的档位**直接取自 Cline 官方定义**，未做任何改写：
+只在 Cline 公布了档位阶梯时才声明档位，且沿用官方档位名：
 
 | 模型 | 档位 | 默认 |
 | --- | --- | --- |
-| GLM-5.3 / GLM-5.3-Flash | `low` `high` `max` | high |
-| Kimi K3 | `low` `high` `max` | high |
-| DeepSeek V4.1 Flash | `low` `high` `max` | high |
-| DeepSeek V4 Pro | `high` `xhigh` | high |
-| Muse Spark 1.3 Contributor | `minimal` `low` `medium` `high` `xhigh` `max` | medium |
-| MiMo 系列、MiniMax-M3、Qwen3.7 / Qwen3.8 | —（见下） | — |
+| GLM-5.3、GLM-5.3-Flash、Kimi K3、DeepSeek V4.1 Flash | `low` `high` `max` | `high` |
+| DeepSeek V4 Pro | `high` `xhigh` | `high` |
+| Muse Spark 1.3 Contributor | `minimal` `low` `medium` `high` `xhigh` `max` | `medium` |
+| MiMo-V2.5、MiMo-V2.5-Pro、MiMo-V2.6-Flash、MiMo-V2.6-Pro、MiniMax-M3、Qwen3.7 Max、Qwen3.7 Plus、Qwen3.8 Max | —（见下） | — |
 
----
+三点说明：
 
-## 已知限制
+1. **不声明 `off`。** Cline 把"不思考"表达成档位 `none`，由它的客户端**发送**该值；
+   而 PI-Desktop 的 `off` 是"**什么都不发**"，两者不是一回事，manifest 也表达不了。
+   好在 14 个模型的阶梯里没有一个以 `none` 起步，所以没有损失：每个声明出来的列表
+   就是官方目录里的 effort 值。
+2. **只有开关的模型不给档位。** 上面八个模型官方只提供「开 / 关」开关，没有档位阶梯；
+   `thinkingLevels` 是一列档位，表达不了开关，所以这些模型不声明档位，而不是编造一组档位。
+   它们照样会思考，只是 PI-Desktop 不为它们发送 `reasoning_effort`。
+3. **既有开关又有阶梯的模型**（Kimi K3、DeepSeek V4 Pro、DeepSeek V4.1 Flash）按阶梯声明。
+   那个"彻底关掉思考"的开关在 manifest 里没有对应物，所以这三个无法从 PI-Desktop 进入
+   不思考模式。
 
-**1. `off` 档位未提供，因为它无法真正关闭思考。**
-
-PI-Desktop 在 `off` 时的行为是**不发送** `reasoning_effort`，而**不是**发送"关闭"。
-实测：对 MiMo-V2.5 不发送该参数时，仍然产生了 547 个 reasoning token。
-真正关闭思考需要 Cline 私有的 `reasoning: {"enabled": false}` 对象，而插件 manifest 无法表达它。
-因此与其提供一个名不副实的开关，不如不提供。
-
-**2. 八个模型没有档位可选。**
-
-Cline 对这些模型只提供「开 / 关」开关，没有档位表：
-MiMo-V2.5、MiMo-V2.5-Pro、MiMo-V2.6-Flash、MiMo-V2.6-Pro、MiniMax-M3、Qwen3.7 Max、Qwen3.7 Plus、Qwen3.8 Max。
-PI-Desktop 的 provider 贡献只能表达 `thinkingLevels`（一列档位），表达不了开关，
-所以这些模型保持原样，而不是去编造一组并不存在的档位。
-
----
-
-## 实现原理
-
-| 环节 | 说明 |
-| --- | --- |
-| 请求端点 | `baseUrl` + `/chat/completions` → `https://api.cline.bot/api/v1/chat/completions` |
-| 认证 | `Authorization: Bearer <API Key>` |
-| 协议 | `apiStyle: chat_completions` → pi-ai 的 `openai-completions` 适配器 |
-| 角色 | 默认发送 `system` 而非 `developer`，符合 ClinePass 的要求 |
-| 未知模型 | 若某个模型 ID 不在本地元数据中，会退回通用配置，不会被丢弃 |
-
-Provider 行的 id 为 `plugin:pi.clinepass:clinepass`，由插件 id 与声明的 provider id 拼成。
-**修改插件 id 会导致出现第二个 ClinePass 条目**，因此请勿随意改动。
-
----
-
-## 常见问题
-
-**Q：能用 Claude 吗？**
-不能。ClinePass 不包含 Claude，`cline-pass/claude-*` 这类 ID 并不存在（实测返回 404）。
-想用 Claude 请直接配置 `anthropic/*`（按量付费）。
-
-**Q：同一目录放了多个版本的插件会冲突吗？**
-不会自动冲突，因为 PI-Desktop 只加载你显式加载或已登记的那一个。
-但若两个版本**插件 id 相同**，后加载的会**覆盖**先前的注册——同一时刻只会有一个 ClinePass。
-想回退，重新加载旧目录即可。
-
-**Q：换新版本后 API Key 要重填吗？**
-不需要。provider 行 id 未变，凭据会保留。
-
----
-
-## 免责声明
-
-- 本项目为**非官方**第三方插件，作者与 Cline 无关联。
-- 订阅、计费、额度、模型上下架均由 Cline 决定，本项目不做任何保证。
-- 模型列表与档位信息可能随 Cline 更新而过期，请以 Cline 官方文档为准。
-- 请勿将 API Key 提交到任何仓库；本插件不会存储你的凭据。
-
-## 许可证
-
-本仓库尚未声明许可证。如需开源，建议添加 `LICENSE` 文件（例如 MIT）。
+「默认」列是本地选择（各阶梯的首选档，Muse Spark 取 `medium`）；官方目录不公布每模型的默认档。
