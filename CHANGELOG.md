@@ -1,5 +1,38 @@
 # 更新说明
 
+## 2.0.0 — 融入上游观察（Cline Upstream）
+
+把 [moyunliuyin/pi-desktop-cline-upstream](https://github.com/moyunliuyin/pi-desktop-cline-upstream)
+的能力并进本插件：多一个服务商 **ClinePass Upstream**（`http://127.0.0.1:41892/v1`），
+走它就能看见每个请求真实落在哪个上游。
+
+**新增**
+
+- 第二个服务商 `clinepass-upstream`：同样 15 个 `cline-pass/*` 模型，转发到 `api.cline.bot`，
+  并读取网关在每个响应里返回的 `routing` 元数据。
+- 面板（命令「ClinePass: 打开上游面板」）：逐条请求的实际落点、钉住、备选数、缓存命中、成本。
+- 上游探测与锚定：探测同族 id 各自的落点，选定后由插件改写 `model` 字段。
+- 启用哪些模型（白名单，未勾选一律 `404 model_not_enabled`）+ 每个模型的默认思考强度。
+- 可选：把 key 也填进插件设置（Windows DPAPI 加密）。**通常不需要**——转发时直接用宿主
+  为该服务商行发送的 `Authorization` 头。
+
+**权限**
+
+- 新增 `ui.panel`、`background.service`；升级后宿主会要求重新授权。
+
+**相对上游插件的改动**
+
+- 模型清单不再内置，改读 `manifest.json`（由同步脚本从 Cline 官方目录生成）。
+- 服务商 id 用 `clinepass-upstream`、端口用 `127.0.0.1:41892`，避开原插件的 41891，两者可共存。
+- `enabled` 开关现在真的会拒绝转发（`503 observer_disabled`）。
+- 去掉无效的 `/v1/responses` 路由，以及未认证即可写设置的 `__settings` 接口。
+- 同步脚本改为按 provider id 定位，两个 provider 一起同步。
+
+**说明**
+
+- 直连的 `ClinePass` 服务商不受影响：官方 15 个模型、key 仍在宿主安全存储里。
+- 面板改写的是**安装副本**的 `manifest.json`；重装会把那一行恢复成官方 15 个。
+
 ## 1.3.0 — 对齐 Cline 当前的 ClinePass 目录
 
 Cline 的订阅模型清单更新了，本版把插件声明的模型同步到官方目录（15 个模型）。

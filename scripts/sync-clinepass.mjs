@@ -38,8 +38,10 @@ import { dirname, join } from "node:path";
  const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
  const MANIFEST_PATH = join(REPO_ROOT, "manifest.json");
  
- /** Provider id in `manifest.json` to rewrite. */
- const PROVIDER_ID = "clinepass";
+/** Provider ids in `manifest.json` to keep in sync — both declare the same list. */
+const PROVIDER_ID = "clinepass";
+const UPSTREAM_PROVIDER_ID = "clinepass-upstream";
+const PROVIDER_IDS = [PROVIDER_ID, UPSTREAM_PROVIDER_ID];
  
  /** Only these model ids belong to the subscription this provider bills against. */
  const CLINE_PASS_PREFIX = "cline-pass/";
@@ -227,12 +229,17 @@ function buildModel(id, entry, remoteNames) {
    return `          {\n${rows}\n          }`;
  }
 
-function replaceModelsSection(source, models) {
+function replaceModelsSection(source, providerId, models) {
   const providers = source.indexOf('"providers": [');
   if (providers < 0) throw new Error("manifest: no contributes.providers section");
 
-  const modelsKey = source.indexOf('"models": [', providers);
-  if (modelsKey < 0) throw new Error("manifest: no provider models list");
+  // Anchor on the provider's own id: the manifest carries several providers and
+  // the observer one is not necessarily the first.
+  const providerAt = source.indexOf(`"id": ${JSON.stringify(providerId)}`, providers);
+  if (providerAt < 0) throw new Error(`manifest: no provider ${providerId}`);
+
+  const modelsKey = source.indexOf('"models": [', providerAt);
+  if (modelsKey < 0) throw new Error(`manifest: provider ${providerId} has no models list`);
 
   const open = source.indexOf("[", modelsKey);
   let depth = 0;
@@ -258,10 +265,17 @@ function replaceModelsSection(source, models) {
       }
     }
   }
-  if (close < 0) throw new Error("manifest: provider models list is not closed");
+  if (close < 0) throw new Error(`manifest: provider ${providerId} models list is not closed`);
 
-   const body = models.map((model) => renderModel(model)).join(",\n");
+  const body = models.map((model) => renderModel(model)).join(",\n");
   return `${source.slice(0, open)}[\n${body}\n        ${source.slice(close)}`;
+}
+
+/** One provider block from the manifest, or null when it is not declared. */
+function providerOf(source, providerId) {
+  const providers = JSON.parse(source)?.contributes?.providers;
+  if (!Array.isArray(providers)) throw new Error("manifest: no contributes.providers section");
+  return providers.find((entry) => entry && entry.id === providerId) ?? null;
 }
 
 async function main() {
@@ -270,26 +284,26 @@ async function main() {
   const remotePayload = await fetchText(RECOMMENDED_URL, "recommended-models");
   const remotePass = Array.isArray(remotePayload?.clinePass) ? remotePayload.clinePass : [];
   const remoteNames = new Map(remotePass.map((entry) => [entry.id, entry.name]));
- 
+
   if (remoteOnly) {
     throw new Error(
-       "--remote alone cannot build the manifest: the live list carries no context window, output ceiling or reasoning ladder.",
+      "--remote alone cannot build the manifest: the live list carries no context window, output ceiling or reasoning ladder.",
     );
   }
- 
-   const catalogSource = await fetchCatalogSource();
-   const catalog = extractClinePassBlock(catalogSource);
-   /*
-     The generated catalog interleaves several catalogs — plain `cline-pass/*`
-     slugs plus free and third-party lanes (`cline-free/*`, `nvidia/*`,
-     `reflection/*`, `poolside/*`). Only `cline-pass/*` belongs to the ClinePass
-     subscription this provider bills against, so the rest is filtered out: a
-     free lane listed here would look like a subscription model and fail.
-   */
-   const catalogIds = Object.keys(catalog).filter((id) => id.startsWith(CLINE_PASS_PREFIX));
-   const models = catalogIds
-     .map((id) => buildModel(id, catalog[id], remoteNames))
-     .sort((a, b) => a.id.localeCompare(b.id));
+
+  const catalogSource = await fetchCatalogSource();
+  const catalog = extractClinePassBlock(catalogSource);
+  /*
+    The generated catalog interleaves several catalogs — plain `cline-pass/*`
+    slugs plus free and third-party lanes (`cline-free/*`, `nvidia/*`,
+    `reflection/*`, `poolside/*`). Only `cline-pass/*` belongs to the ClinePass
+    subscription this provider bills against, so the rest is filtered out: a
+    free lane listed here would look like a subscription model and fail.
+  */
+  const catalogIds = Object.keys(catalog).filter((id) => id.startsWith(CLINE_PASS_PREFIX));
+  const models = catalogIds
+    .map((id) => buildModel(id, catalog[id], remoteNames))
+    .sort((a, b) => a.id.localeCompare(b.id));
 
   // Cross-check: the live list and the shipped catalog must describe the same
   // models, or one of them is mid-deploy and the sync should not guess.
@@ -303,25 +317,33 @@ async function main() {
     if (onlyRemote.length) console.warn(`  only in live list: ${onlyRemote.join(", ")}`);
   }
 
-  const source = await readFile(MANIFEST_PATH, "utf8");
-  const provider = JSON.parse(source).contributes.providers.find(
-    (entry) => entry.id === PROVIDER_ID,
-  );
-  const previous = new Map((provider?.models ?? []).map((model) => [model.id, model]));
+  let source = await readFile(MANIFEST_PATH, "utf8");
+  const drifted = [];
 
-  const added = models.filter((model) => !previous.has(model.id));
-  const removed = [...previous.keys()].filter((id) => !models.some((m) => m.id === id));
-  const changed = models.filter((model) => {
-    const before = previous.get(model.id);
-    return before && JSON.stringify(before) !== JSON.stringify(model);
-  });
+  for (const providerId of PROVIDER_IDS) {
+    const provider = providerOf(source, providerId);
+    if (!provider) {
+      console.warn(`⚠ manifest has no provider ${providerId}; skipped`);
+      continue;
+    }
+    const previous = new Map((provider.models ?? []).map((model) => [model.id, model]));
+    const added = models.filter((model) => !previous.has(model.id));
+    const removed = [...previous.keys()].filter((id) => !models.some((m) => m.id === id));
+    const changed = models.filter((model) => {
+      const before = previous.get(model.id);
+      return before && JSON.stringify(before) !== JSON.stringify(model);
+    });
 
-  console.log(`models: ${previous.size} → ${models.length}`);
-  for (const model of added) console.log(`  + ${model.id}`);
-  for (const id of removed) console.log(`  - ${id}`);
-  for (const model of changed) console.log(`  ~ ${model.id}`);
+    console.log(`${providerId}: models ${previous.size} → ${models.length}`);
+    for (const model of added) console.log(`  + ${model.id}`);
+    for (const id of removed) console.log(`  - ${id}`);
+    for (const model of changed) console.log(`  ~ ${model.id}`);
 
-  if (added.length + removed.length + changed.length === 0) {
+    if (added.length + removed.length + changed.length === 0) continue;
+    drifted.push(providerId);
+  }
+
+  if (drifted.length === 0) {
     console.log("manifest already matches Cline's catalog");
     return;
   }
@@ -331,8 +353,11 @@ async function main() {
     return;
   }
 
-  await writeFile(MANIFEST_PATH, replaceModelsSection(source, models), "utf8");
-  console.log("manifest.json updated");
+  for (const providerId of drifted) {
+    source = replaceModelsSection(source, providerId, models);
+  }
+  await writeFile(MANIFEST_PATH, source, "utf8");
+  console.log(`manifest.json updated: ${drifted.join(", ")}`);
 }
 
 await main();
