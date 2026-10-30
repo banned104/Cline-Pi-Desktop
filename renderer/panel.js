@@ -48,6 +48,8 @@ let busy = false;
 let probing = null;
 let lastProbe = null;
 let lastProbeRows = {};
+/** One-shot message from an action; renderHints re-applies it after each refresh. */
+let flash = null;
 
 /* ----------------------------------------------------------------- bridge */
 
@@ -252,7 +254,7 @@ function renderModels(settings) {
   if (cat && cat.ok === false) {
     const why =
       cat.note === "no-api-key"
-        ? "还没有可用的 key"
+        ? "还没有拿到 key（发一条消息后会自动带上宿主的 key 再拉）"
         : cat.note === "network"
           ? "网络失败"
           : String(cat.note || "未知原因");
@@ -363,8 +365,7 @@ function renderModels(settings) {
           renderModels(current || {});
         }
       } catch (error) {
-        el.hint.className = "hint warn";
-        el.hint.textContent = error && error.message ? error.message : String(error);
+        flash = error && error.message ? error.message : String(error);
       } finally {
         probing = null;
         await refresh(true);
@@ -489,6 +490,12 @@ function renderHints(settings) {
     el.hint.className = "hint";
     el.hint.textContent += "\n" + lastProbe;
   }
+  // Action feedback must survive refresh(): renderHints rebuilds this hint from
+  // scratch, so a one-shot message written straight into el.hint is lost.
+  if (flash) {
+    el.hint.className = "hint warn";
+    el.hint.textContent += (el.hint.textContent ? "\n" : "") + flash;
+  }
 }
 
 function render() {
@@ -558,8 +565,7 @@ async function save() {
     const applied = await invoke("applyModels");
     setStatus("已应用", "live");
     if (applied && typeof applied.applied === "number") {
-      el.hint.className = "hint";
-      el.hint.textContent =
+      flash =
         `已保存：ClinePass 这个服务商的清单改为 ${applied.applied} 个（可选 ${applied.available} 个）。` +
         "PI 的模型下拉框要重启 PI 后才会跟着变；ClinePass Direct 不受影响。";
     }

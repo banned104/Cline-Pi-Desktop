@@ -133,8 +133,15 @@ check(
 
 /* --------------------------------------------------------- panel channels */
 
-const readState = await mod.onPanelInvoke("readState", null);
-check("panel readState answers", readState?.ok === true, `${readState?.available?.length} available`);
+// readState was removed: it had no renderer caller and returned the plaintext
+// apiKey. It must stay refused, not silently come back.
+let readStateRefused = false;
+try {
+  await mod.onPanelInvoke("readState", null);
+} catch {
+  readStateRefused = true;
+}
+check("the removed readState channel is refused", readStateRefused);
 
 let unknownThrew = false;
 try {
@@ -391,7 +398,8 @@ const smokeSnapshot = {
   models: {
     "cline-pass/glm-5.3": {
       at: now,
-      model: "cline-pass/glm-5.3",
+      // deliberately no `model` field: the view must fall back to the map key,
+      // which is what the producer guarantees.
       sentModel: null,
       statusCode: 200,
       finalProvider: "fireworks",
@@ -503,6 +511,24 @@ for (const script of ["renderer/view.js", "renderer/panel.js"]) {
       failure === null && !hint.includes("读取失败"),
       failure || (hint ? `hint: ${hint.slice(0, 60)}` : "rendered"),
     );
+    // The 2.2.0 bug: the view's "last request" card rendered a blank model name
+    // because it read a field the producer never wrote, and the fixture hid it by
+    // supplying that field. The fixture no longer does.
+    if (script === "renderer/view.js" && scenario.name === "a real snapshot") {
+      const walk = (root, out = []) => {
+        for (const child of root.children || []) {
+          out.push(child);
+          walk(child, out);
+        }
+        return out;
+      };
+      const modelNode = walk(dom.byId("last")).find((n) => n.className === "last-model");
+      check(
+        "the view prints the last request's model name",
+        Boolean(modelNode && String(modelNode.textContent).trim()),
+        modelNode ? JSON.stringify(modelNode.textContent) : "no .last-model node",
+      );
+    }
   }
 }
 

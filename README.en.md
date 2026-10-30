@@ -65,7 +65,7 @@ listening, switch, key source, enabled/official model counts, catalog refresh,
 target upstreams, last error), the last request (landed / pinned / fallbacks /
 cache hits / cost / count / verdict) and the last 20 requests.
 
-Full panel (separate window): all of the above plus a 200-row table, per-model
+Full panel (separate window): all of the above plus the snapshot's 60-row table, per-model
 checkboxes, per-model default thinking level, target upstreams, probe and anchoring.
 
 | Column | Meaning |
@@ -103,7 +103,9 @@ The checkboxes are stored in plugin settings, and the plugin **rewrites its own
 installed `manifest.json`** to narrow the `clinepass` row. The picker follows after
 a restart; the forward layer refuses unchecked models immediately
 (`404 model_not_enabled`). `ClinePass Direct` always keeps all 15. "全选官方"
-restores them in one click.
+restores them in one click. With "Install from folder" on this directory that
+installed copy *is* this file, so re-run `node scripts/sync-clinepass.mjs` to
+restore the official list.
 
 ## Models
 

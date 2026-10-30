@@ -590,6 +590,8 @@ function recordResult(model, routing, injected, statusCode, sent) {
         : null,
     requests: ((state.models[model] && state.models[model].requests) || 0) + 1,
     sentModel: sent && sent !== model ? sent : null,
+    // The view reads entries by value, so carry the id it was keyed by.
+    model,
   };
 
   state.models[model] = entry;
@@ -611,7 +613,9 @@ function recordResult(model, routing, injected, statusCode, sent) {
   state.log.unshift(item);
   if (state.log.length > LOG_LIMIT) state.log.length = LOG_LIMIT;
   state.updatedAt = entry.at;
-  state.lastError = null;
+  // Only a successful answer clears the last transport error; a 5xx is still an
+  // error worth showing.
+  if (statusCode >= 200 && statusCode < 300) state.lastError = null;
   saveState();
 
   if (injected && entry.matched === false && settings.toastOnMismatch) {
@@ -862,22 +866,30 @@ function proxyChat(req, res) {
           }
           res.writeHead(upstreamRes.statusCode || 502, responseHeaders);
 
-          const tee = [];
-          let teeSize = 0;
+          // Keep the TAIL of the response: the gateway appends its routing block
+          // at the END of the stream, so keeping the head would lose it on any
+          // long reply — which is most agent turns.
+          const tail = [];
+          let tailBytes = 0;
+          const keepTail = (chunk) => {
+            tail.push(chunk);
+            tailBytes += chunk.length;
+            while (tailBytes > TEE_LIMIT && tail.length > 1) {
+              tailBytes -= tail[0].length;
+              tail.shift();
+            }
+          };
 
           upstreamRes.on("data", (chunk) => {
             res.write(chunk);
-            if (teeSize < TEE_LIMIT) {
-              tee.push(chunk);
-              teeSize += chunk.length;
-            }
+            keepTail(chunk);
           });
 
           upstreamRes.on("end", () => {
             res.end();
             let routing = null;
             try {
-              routing = parseRouting(Buffer.concat(tee).toString("utf8"));
+              routing = parseRouting(Buffer.concat(tail).toString("utf8"));
             } catch (error) {
               log("warn", "routing parse failed: " + messageOf(error));
             }
@@ -1094,7 +1106,9 @@ async function onLoad() {
   try {
     if (pi && pi.plugin && typeof pi.plugin.getSettings === "function") {
       applySettings(await pi.plugin.getSettings());
-      await hydrateKey();
+      // Unsealing shells out to PowerShell; never hold up onLoad on it, or the
+      // loopback endpoint starts late and the first requests fail.
+      void hydrateKey();
     }
   } catch (error) {
     log("warn", "getSettings failed: " + messageOf(error));
@@ -1241,9 +1255,6 @@ async function onPanelInvoke(channel, payload) {
         resolve({ ok: true, applied: exposed.length, available: ids.length, written });
       });
     });
-  }
-  if (name === "readState") {
-    return { ok: true, settings, available: state.availableModels || [] };
   }
   if (name === "openFullPanel") {
     if (pi && pi.ui && typeof pi.ui.openPanel === "function") await pi.ui.openPanel();

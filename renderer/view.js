@@ -35,6 +35,8 @@ const LOG_ROWS = 20;
 function bridge() {
   return window.pluginBridge || null;
 }
+/** One-shot message from a button action; renderHints re-applies it each render. */
+let flash = null;
 
 async function invoke(channel, payload) {
   const b = bridge();
@@ -199,7 +201,9 @@ function metric(label, value, className) {
 }
 
 function renderLast(snap) {
-  const models = Object.values((snap && snap.models) || {});
+  // Keep the map key: it is the model id, and an entry that somehow lacks one
+  // must still render a name instead of a blank line.
+  const models = Object.entries((snap && snap.models) || {}).map(([id, entry]) => ({ id, entry }));
   if (models.length === 0) {
     el.last.replaceChildren(
       node(
@@ -210,12 +214,13 @@ function renderLast(snap) {
     );
     return;
   }
-  const entry = models.reduce((a, b) => ((a && a.at) || 0) >= ((b && b.at) || 0) ? a : b);
+  const latest = models.reduce((a, b) => ((a.entry.at || 0) >= (b.entry.at || 0) ? a : b));
+  const entry = latest.entry;
 
   const frag = document.createDocumentFragment();
   const top = node("div", "last-top");
   const left = node("div");
-  const modelLine = node("div", "last-model", entry.model);
+  const modelLine = node("div", "last-model", entry.model || latest.id);
   if (entry.sentModel) modelLine.appendChild(node("span", "sent", `→ ${entry.sentModel}`));
   left.append(modelLine, verdictBadge(entry));
   top.append(left, node("div", "last-time", fmtStamp(entry.at)));
@@ -290,6 +295,12 @@ function renderHints(settings, snap) {
     lines.push("ClinePass 这一行还没有模型：在完整面板里保存一次。");
   }
   el.hint.className = lines.length ? "hint warn" : "hint";
+  // A message from an action (clear failed, …) must survive the 3 s poll, which
+  // rebuilds this hint from scratch on every refresh.
+  if (flash) {
+    lines.push(flash);
+    el.hint.className = "hint warn";
+  }
   el.hint.textContent = lines.join("\n");
 }
 
@@ -323,11 +334,11 @@ async function withBusy(button, label, work) {
   const original = button.textContent;
   button.disabled = true;
   button.textContent = label;
+  flash = null;
   try {
     await work();
   } catch (error) {
-    el.hint.className = "hint warn";
-    el.hint.textContent = error && error.message ? error.message : String(error);
+    flash = error && error.message ? error.message : String(error);
   } finally {
     busy = false;
     button.disabled = false;
