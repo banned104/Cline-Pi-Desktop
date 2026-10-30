@@ -124,11 +124,29 @@ ClinePass 的同一个模型背后挂着二十多个上游，客户端看不见�
 
 日志按请求一条，视图里显示最近 20 条（快照 60 条，插件数据目录 200 条），不含请求内容。
 
-### 目标上游与「网关忽略」
+### 钉住上游（providerOptions.gateway）
 
-勾选目标上游并打开「写入 routing（实验）」，插件会加 `provider: { only: [...] }`（可选
-`allow_fallbacks: false`），再拿响应的 `finalProvider` 比对。**实测 Cline 网关忽略该字段**，面板会显示
-「网关忽略」—— 这是预期结果，不是配置错了。
+勾选目标上游（写进 `only`）+ 填「能力过滤 has」，再打开「钉住上游」开关，插件会在**请求体顶层**写入：
+
+```json
+"providerOptions": { "gateway": { "only": ["deepseek"], "has": ["vision", "implicit-caching"] } }
+```
+
+两条实测结论决定了必须这么写：
+
+- **顶层的 `provider.only` 会被 Cline 丢掉**。所以 2.2.x 及更早那一版看起来"网关忽略客户端路由"，其实是字段位置错了；`allow_fallbacks` 网关根本不认。
+- **只写 `only` 在不少账号上不生效**：服务端给虚拟模型配的兜底会盖过它，补上 `has`（能力过滤）才稳定。
+
+`has` 可填 `reasoning` / `tool-use` / `vision` / `implicit-caching` / `structured-output`，任选其一即可。
+
+判断有没有真的钉住，看响应里的 `provider_metadata.gateway.routing.finalProvider`（就是面板的「实际落点」），
+**不要**看转发给客户端的顶层 `model` —— 它恒为 `vmc/...-fallbacks`，钉没钉住都一样。缓存命中数能被 64 整除
+（面板缓存列后面那个「64」小标记）也是一条官渠指纹。
+
+模型行末尾的「候选」按钮可以**免费**问网关「这个模型有几家上游可选」：插件发一个指定不存在上游的请求，
+网关会在报错里把清单吐回来，不产生 token。要是目标上游不在清单里，这个账号本来就钉不住。
+
+来龙去脉与对照实验：[docs/linuxdo-3064863-deepseek-pin](docs/linuxdo-3064863-deepseek-pin/README.md)。
 
 ### 锚定上游（只能靠改写模型 id）
 

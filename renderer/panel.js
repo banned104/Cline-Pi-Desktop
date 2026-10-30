@@ -28,7 +28,7 @@ const el = {
   refresh: document.getElementById("refresh"),
   save: document.getElementById("save"),
   inject: document.getElementById("inject"),
-  hardPin: document.getElementById("hardPin"),
+  abilities: document.getElementById("abilities"),
   toast: document.getElementById("toast"),
   dirty: document.getElementById("dirty"),
   hint: document.getElementById("hint"),
@@ -64,6 +64,7 @@ const {
   fmtCost,
   verdictClass,
   verdictTone,
+  verdictLabel,
   TERMS,
   glossaryText,
 } = window.ClinePassPanel;
@@ -172,7 +173,7 @@ function makeDraft(settings) {
     thinking: new Map(Object.entries(parseThinking(settings.modelThinking))),
     overrides: new Map(Object.entries(parseThinking(settings.modelIdOverride))),
     inject: Boolean(settings.injectRouting),
-    hardPin: Boolean(settings.hardPin),
+    abilities: String(settings.pinAbilities || ""),
     toast: settings.toastOnMismatch !== false,
   };
 }
@@ -382,6 +383,47 @@ function renderModels(settings) {
       }
     });
     row.appendChild(probe);
+
+    const channels = document.createElement("button");
+    channels.type = "button";
+    channels.className = "ghost tiny";
+    channels.textContent = probing === id ? "…" : "候选";
+    channels.disabled = probing !== null;
+    channels.title =
+      "免费列出这个模型能落到哪些上游：发一个指定不存在上游的请求，网关会在报错里把清单吐回来，不产生 token";
+    channels.addEventListener("click", async () => {
+      probing = id;
+      renderModels(settings);
+      try {
+        const res = await invoke("probeProviders", { model: id });
+        const list = res && Array.isArray(res.providers) ? res.providers : [];
+        const wanted = (res && res.wanted) || [];
+        let text;
+        if (list.length === 0) {
+          text =
+            `候选上游：网关没给出清单（HTTP ${(res && res.status) || 0}）。原始回复：` +
+            String((res && res.message) || "").slice(0, 300);
+        } else {
+          const missing = wanted.filter((p) => list.indexOf(p) === -1);
+          text =
+            `${id} 的候选上游 ${list.length} 家：${list.join("、")}` +
+            (wanted.length === 0
+              ? ""
+              : missing.length
+                ? `\n注意：你要钉的 ${missing.join("、")} 不在清单里 —— 这个账号钉不住。`
+                : `\n你要钉的 ${wanted.join("、")} 在清单里。`);
+        }
+        lastProbe = text;
+        el.hint.className = "hint";
+        el.hint.textContent = text;
+      } catch (error) {
+        flash = error && error.message ? error.message : String(error);
+      } finally {
+        probing = null;
+        await refresh(true);
+      }
+    });
+    row.appendChild(channels);
     frag.appendChild(row);
   }
   el.models.replaceChildren(frag);
@@ -433,18 +475,22 @@ function renderTable(settings) {
 
     tr.appendChild(td(e.pinnedProvider));
     tr.appendChild(td(fmtCount(e.fallbackCount), "num"));
-    tr.appendChild(td(fmtCount(e.cacheHitTokens), "num"));
+    const cacheCell = td(fmtCount(e.cacheHitTokens), "num");
+    if (e.cacheAligned === true) {
+      const mark = document.createElement("em");
+      mark.className = "dim small";
+      mark.textContent = " ·64";
+      mark.title = glossaryText("fingerprint");
+      cacheCell.appendChild(mark);
+    }
+    tr.appendChild(cacheCell);
     tr.appendChild(td(fmtCost(e.cost), "num"));
 
     const verdict = td("");
     const badge = document.createElement("span");
-    if (e.injected) {
-      badge.className = "badge " + verdictTone(e);
-      badge.textContent = e.matched === true ? "落点一致" : e.matched === false ? "网关忽略" : "无元数据";
-    } else {
-      badge.className = "badge idle";
-      badge.textContent = "仅观察";
-    }
+    if (e.injected) badge.className = "badge " + verdictTone(e);
+    else badge.className = "badge idle";
+    badge.textContent = verdictLabel(e);
     verdict.appendChild(badge);
     tr.appendChild(verdict);
     frag.appendChild(tr);
@@ -468,11 +514,19 @@ function renderHints(settings) {
       "1. 直接用 ClinePass 的任意模型发一条消息 —— 现在所有 ClinePass 请求都会经过这里，发完就会出现在下面的表里。\n" +
       "2. 如果发消息时报「没有 API Key」：设置 → Providers → ClinePass 填好 key（这一行就是本插件的入口）。\n" +
       "3. 想临时绕开插件：把模型切到 ClinePass Direct（直连 api.cline.bot，不经过记录）。";
-  } else if (targets.length && settings.injectRouting) {
-    el.hint.className = "hint warn";
+  } else if (settings.injectRouting) {
+    const has = splitList(settings.pinAbilities);
+    const parts = [
+      targets.length ? `only=[${targets.join(",")}]` : "only 未设（不限制上游）",
+      has.length ? `has=[${has.join(",")}]` : "has 未设",
+    ];
+    el.hint.className = has.length ? "hint" : "hint warn";
     el.hint.textContent =
-      `已把「${targets.join(" / ")}」写进请求的 provider 字段，但实测 Cline 网关会忽略它：` +
-      "落点仍由会话亲和决定，所以「网关忽略」是预期结果，不是配置错了。想真的换家只能用下面的「探测 + 锚定」。";
+      `已开启钉住：请求体顶层写入 providerOptions.gateway 的 ${parts.join(" ")}。` +
+      (has.length
+        ? "看下表「实际落点」有没有变成目标上游：没变 = 网关没采纳，或这个账号本来只有一条上游。"
+        : "只写 only 在多数账号上不生效，把「能力过滤 has」填上（例如 vision,implicit-caching）才稳。") +
+      " 想先确认这个模型有几条上游可选，点模型行末的「候选」。";
   } else if (targets.length) {
     el.hint.className = "hint";
     el.hint.textContent = `已记下目标「${targets.join(" / ")}」，当前只观察，不改写请求。`;
@@ -513,7 +567,8 @@ function render() {
   renderHints(settings);
 
   el.inject.checked = draft.inject;
-  el.hardPin.checked = draft.hardPin;
+  // A refresh must not clobber what the user is typing.
+  if (document.activeElement !== el.abilities) el.abilities.value = draft.abilities;
   el.toast.checked = draft.toast;
 
   const rows = Object.keys((snap && snap.models) || {}).length;
@@ -559,7 +614,7 @@ async function save() {
       preferredUpstream: [...draft.upstreams].join(","),
       enabledModels: all ? "" : [...draft.models].join(","),
       injectRouting: draft.inject,
-      hardPin: draft.hardPin,
+      pinAbilities: draft.abilities.trim(),
       toastOnMismatch: draft.toast,
       modelThinking: JSON.stringify(Object.fromEntries(draft.thinking)),
       modelIdOverride: JSON.stringify(Object.fromEntries(draft.overrides)),
@@ -603,7 +658,10 @@ el.allOfficial.addEventListener("click", () => {
   renderModels(current || {});
 });
 bindDraftSwitch(el.inject, "inject");
-bindDraftSwitch(el.hardPin, "hardPin");
+el.abilities.addEventListener("input", () => {
+  draft.abilities = el.abilities.value;
+  markDirty();
+});
 bindDraftSwitch(el.toast, "toast");
 
 (async function boot() {

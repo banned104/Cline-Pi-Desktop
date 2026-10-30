@@ -20,9 +20,13 @@
  *
  * Facts this file depends on (measured upstream, not assumed):
  *
- *   - The gateway ignores client-side routing fields. `provider.only` /
- *     `allow_fallbacks` change nothing: the landing upstream is a function of
- *     (api key, model id), so re-pinning means rewriting `model`.
+ *   - A **top-level** `provider.only` is dropped before the gateway behind Cline
+ *     runs, and `allow_fallbacks` is not a field it knows. The nested form
+ *     `providerOptions.gateway.{only,has}` is passed through and does move the
+ *     landing provider — but only once the capability filter (`has`) is there
+ *     too; without it the virtual model's own fallbacks win. Pinning therefore
+ *     writes that nested block, and rewriting `model` is the remaining lever.
+ *     See docs/linuxdo-3064863-deepseek-pin/README.md.
  *   - `clientSessionId` is derived from the key — sending `sessionId` /
  *     `clientSessionId` in the body, or `x-session-id` / `x-cline-session-id`
  *     headers, does not move the request to another upstream.
@@ -77,12 +81,19 @@ const DEFAULTS = {
   enabledModels: "",
   preferredUpstream: "",
   injectRouting: false,
-  hardPin: false,
+  pinAbilities: "vision,implicit-caching",
   toastOnMismatch: true,
   modelThinking: "",
   modelIdOverride: "",
   upstreamProbe: "",
 };
+
+/**
+ * The capability names the gateway accepts in `gateway.has`. Anything else makes
+ * the gateway answer "no matching provider" and takes every pinned request down
+ * with it, so unknown words are dropped when settings are applied.
+ */
+const PIN_ABILITIES = ["reasoning", "tool-use", "vision", "implicit-caching", "structured-output"];
 
 /* ----------------------------------------------------------- secret at rest */
 
@@ -552,6 +563,18 @@ function readCost(body) {
   return pick("cost");
 }
 
+/**
+ * DeepSeek's official lane aligns its prompt cache to 64 tokens; the private
+ * pool behind the same model id does not. Only meaningful for that lane, so any
+ * other upstream answers `null` instead of pretending to be a fingerprint.
+ */
+function cacheAligned(body, finalProvider) {
+  if (!finalProvider || !/deepseek/i.test(finalProvider)) return null;
+  const hit = numberAfter(body, "promptCacheHitTokens");
+  if (hit === null || hit === 0) return null;
+  return hit % 64 === 0;
+}
+
 /** Pull the gateway's routing block out of a (possibly SSE) response body. */
 function parseRouting(body) {
   if (!body) return null;
@@ -569,8 +592,10 @@ function parseRouting(body) {
       .slice(0, 40);
   }
 
+  const finalProvider = stringAfter(window, "finalProvider");
+
   return {
-    finalProvider: stringAfter(window, "finalProvider"),
+    finalProvider,
     resolvedProvider: stringAfter(window, "resolvedProvider"),
     pinnedProvider: stringAfter(window, "pinnedProvider"),
     affinityOutcome: stringAfter(window, "affinity"),
@@ -582,13 +607,32 @@ function parseRouting(body) {
     providerAttemptCount: numberAfter(window, "providerAttemptCount"),
     cacheHitTokens: numberAfter(body, "promptCacheHitTokens"),
     cacheMissTokens: numberAfter(body, "promptCacheMissTokens"),
+    // DeepSeek 官方通道的缓存按 64 token 对齐；私有池对不齐。协议层的官渠指纹。
+    cacheAligned: cacheAligned(body, finalProvider),
     cost: readCost(body),
   };
 }
 
+/**
+ * Did the request land on one of the pinned upstreams?
+ *
+ * `null` means "no comparison possible": either nothing was pinned by name (a
+ * `has`-only pin has no target list, so calling that a mismatch would toast on
+ * every single turn) or the response carried no finalProvider.
+ */
+function matchTargets(targets, finalProvider) {
+  if (!Array.isArray(targets) || targets.length === 0) return null;
+  if (!finalProvider) return null;
+  return targets.indexOf(finalProvider) !== -1;
+}
+
 function recordResult(model, routing, injected, statusCode, sent) {
   if (!model) return;
-  const preferred = selectedUpstreams().join(" / ");
+  const targets = selectedUpstreams();
+  const preferred = targets.join(" / ");
+  // A pin that carries only `has` has no target to compare against: leave
+  // `matched` null, or every request would read as a mismatch (and toast).
+  const pinLabel = preferred || "has:" + splitSettingList(settings.pinAbilities).join(",");
   const entry = {
     at: Date.now(),
     statusCode,
@@ -601,13 +645,11 @@ function recordResult(model, routing, injected, statusCode, sent) {
     modelAttemptCount: routing ? routing.modelAttemptCount : null,
     providerAttemptCount: routing ? routing.providerAttemptCount : null,
     cacheHitTokens: routing ? routing.cacheHitTokens : null,
+    cacheAligned: routing ? (routing.cacheAligned === undefined ? null : routing.cacheAligned) : null,
     cacheMissTokens: routing ? routing.cacheMissTokens : null,
     cost: routing ? routing.cost : null,
-    injected: injected ? preferred : null,
-    matched:
-      injected && routing && routing.finalProvider
-        ? selectedUpstreams().indexOf(routing.finalProvider) !== -1
-        : null,
+    matched: injected ? matchTargets(targets, routing && routing.finalProvider) : null,
+    injected: injected ? pinLabel : null,
     requests: ((state.models[model] && state.models[model].requests) || 0) + 1,
     sentModel: sent && sent !== model ? sent : null,
     // The view reads entries by value, so carry the id it was keyed by.
@@ -622,6 +664,7 @@ function recordResult(model, routing, injected, statusCode, sent) {
     sentModel: entry.sentModel,
     statusCode: entry.statusCode,
     finalProvider: entry.finalProvider,
+    cacheAligned: entry.cacheAligned,
     pinnedProvider: entry.pinnedProvider,
     fallbackCount: entry.fallbackCount,
     cacheHitTokens: entry.cacheHitTokens,
@@ -696,7 +739,7 @@ function forwardHeaders(headers) {
   return out;
 }
 
-/** A target list: `provider.only` is itself a whitelist array. */
+/** The pin target list: written as `providerOptions.gateway.only`. */
 function selectedUpstreams() {
   return splitSettingList(settings.preferredUpstream);
 }
@@ -778,22 +821,143 @@ function probeUpstream(id) {
         });
       },
     );
+    req.setTimeout(20000, () => req.destroy(new Error("probe timed out")));
     req.on("error", (error) => resolve({ id, status: 0, upstream: null, fallbacks: [], error: messageOf(error) }));
     req.write(body);
     req.end();
   });
 }
 
-/** The gateway ignores this today; it is kept so the panel can prove that. */
+/**
+ * Provider names in a gateway routing error.
+ *
+ * The names sit inside a JSON error message, so in the raw body their quotes are
+ * escaped (`\"deepseek\"`); match both forms and drop the structural keys that
+ * would otherwise come along for the ride. The panel shows the raw message when
+ * this finds nothing, so a wrong guess is visible rather than silent.
+ */
+function extractProviders(text) {
+  if (!text) return [];
+  const NOISE = [
+    "error",
+    "message",
+    "type",
+    "code",
+    "param",
+    "detail",
+    "details",
+    "data",
+    "status",
+    "object",
+    "model",
+    "provider",
+    "providers",
+    "available",
+    "invalid_request_error",
+  ];
+  const quoted = String(text).match(/\\*"([a-z][a-z0-9._-]{1,40})\\*"/g) || [];
+  const out = [];
+  for (const raw of quoted) {
+    const name = raw.replace(/\\/g, "").replace(/"/g, "");
+    if (NOISE.indexOf(name) !== -1) continue;
+    if (out.indexOf(name) === -1) out.push(name);
+  }
+  return out.slice(0, 40);
+}
+
+/**
+ * Ask which providers this model can land on without spending tokens: name a
+ * provider that cannot exist, and the routing layer rejects the request with the
+ * ones that do.
+ *
+ * The `has` filter is not optional here. On accounts whose virtual model carries
+ * its own fallbacks, `only` alone is ignored — the probe would then be a real,
+ * billed completion instead of an error, and the error body is the only thing
+ * that carries the list. A 2xx answer is therefore reported as "no list".
+ */
+function probeProviders(id) {
+  return new Promise((resolve) => {
+    const key = ambientKey();
+    if (!key) {
+      resolve({ id, status: 0, providers: [], message: "no-api-key" });
+      return;
+    }
+    const has = splitSettingList(settings.pinAbilities);
+    const gateway = { only: ["__probe__"] };
+    if (has.length) gateway.has = has;
+    const body = JSON.stringify({
+      model: id,
+      messages: [{ role: "user", content: "ok" }],
+      max_tokens: 1,
+      stream: false,
+      providerOptions: { gateway },
+    });
+    const req = https.request(
+      {
+        host: UPSTREAM_HOST,
+        port: 443,
+        method: "POST",
+        path: UPSTREAM_BASE + "/chat/completions",
+        headers: {
+          authorization: "Bearer " + key,
+          "content-type": "application/json",
+          accept: "application/json",
+          "content-length": Buffer.byteLength(body),
+        },
+      },
+      (res) => {
+        const chunks = [];
+        res.on("data", (chunk) => chunks.push(chunk));
+        res.on("end", () => {
+          const text = Buffer.concat(chunks).toString("utf8");
+          const status = res.statusCode;
+          resolve({
+            id,
+            status,
+            // A 2xx body is a completion, not a channel list.
+            providers: status >= 400 ? extractProviders(text) : [],
+            message: text.slice(0, 800),
+          });
+        });
+      },
+    );
+    req.setTimeout(20000, () => req.destroy(new Error("probe timed out")));
+    req.on("error", (error) => resolve({ id, status: 0, providers: [], message: messageOf(error) }));
+    req.write(body);
+    req.end();
+  });
+}
+
+/**
+ * Write the pin into the request.
+ *
+ * Cline drops a **top-level** `provider.only` on the way to the gateway behind
+ * it (the "planner" pipeline is Vercel AI Gateway), which is why writing it at
+ * the top level looked like "the gateway ignores client routing". A nested
+ * `providerOptions.gateway` block is passed through verbatim, and it only wins
+ * over the virtual model's own fallbacks when a capability filter (`has`) is
+ * present too. Both fields, one place. See
+ * docs/linuxdo-3064863-deepseek-pin/README.md for the measurements behind this.
+ */
 function injectRouting(model, payload) {
   if (!settings.injectRouting) return false;
-  const list = selectedUpstreams();
-  if (list.length === 0) return false;
   if (typeof model !== "string" || !model.startsWith("cline-pass/")) return false;
 
-  const provider = { only: list };
-  if (settings.hardPin) provider.allow_fallbacks = false;
-  payload.provider = provider;
+  const only = selectedUpstreams();
+  const has = splitSettingList(settings.pinAbilities);
+  if (only.length === 0 && has.length === 0) return false;
+
+  const gateway = {};
+  if (only.length) gateway.only = only;
+  if (has.length) gateway.has = has;
+
+  const existing =
+    payload.providerOptions && typeof payload.providerOptions === "object" ? payload.providerOptions : {};
+  const previousGateway =
+    existing.gateway && typeof existing.gateway === "object" ? existing.gateway : {};
+  payload.providerOptions = Object.assign({}, existing, {
+    gateway: Object.assign({}, previousGateway, gateway),
+  });
   return true;
 }
 
@@ -1007,7 +1171,15 @@ function applySettings(next) {
   settings.modelIdOverride = String(settings.modelIdOverride || "").trim();
   settings.upstreamProbe = String(settings.upstreamProbe || "").trim();
   settings.injectRouting = Boolean(settings.injectRouting);
-  settings.hardPin = Boolean(settings.hardPin);
+  // A typo here takes every pinned request down ("no matching provider"), so keep
+  // only the names the gateway accepts.
+  const askedAbilities = splitSettingList(settings.pinAbilities);
+  const keptAbilities = askedAbilities.filter((name) => PIN_ABILITIES.indexOf(name) !== -1);
+  if (keptAbilities.length !== askedAbilities.length) {
+    const dropped = askedAbilities.filter((name) => PIN_ABILITIES.indexOf(name) === -1);
+    log("warn", "dropped unknown pin abilities: " + dropped.join(","));
+  }
+  settings.pinAbilities = keptAbilities.join(",");
   settings.toastOnMismatch = settings.toastOnMismatch !== false;
   settings.enabled = next.enabled === undefined ? settings.enabled : Boolean(next.enabled);
 }
@@ -1253,6 +1425,22 @@ async function onPanelInvoke(channel, payload) {
     }
     await publishSnapshotNow();
     return { ok: true, model, rows };
+  }
+  if (name === "probeProviders") {
+    const model = String((payload && payload.model) || "");
+    if (!model) throw new Error("probeProviders requires a model");
+    const res = await probeProviders(model);
+    const only = selectedUpstreams();
+    return {
+      ok: true,
+      model,
+      status: res.status,
+      providers: res.providers,
+      message: res.message,
+      // What the pin currently asks for, so the panel can say whether the wanted
+      // provider is even on the list.
+      wanted: only,
+    };
   }
   if (name === "applyModels") {
     return new Promise((resolve) => {

@@ -41,6 +41,7 @@ const {
   fmtCost,
   verdictClass,
   verdictTone,
+  verdictLabel,
   glossaryText,
 } = window.ClinePassPanel;
 
@@ -122,9 +123,11 @@ function renderFacts(settings, snap) {
     : "尚未拉取";
   pushFact(frag, "目录", catText);
 
-  const targetText = targets.length
-    ? `${targets.join(" / ")}${settings.injectRouting ? " · 写入 routing 已开" : " · 只观察"}`
-    : "未指定（只观察）";
+  const abilities = splitList(settings.pinAbilities);
+  const hasText = abilities.length ? abilities.join(",") : "未设";
+  const targetText = settings.injectRouting
+    ? `${targets.length ? targets.join(" / ") : "未指定 only"} · 钉住已开（has=${hasText}）`
+    : `${targets.length ? targets.join(" / ") : "未指定"} · 只观察`;
   pushFact(frag, "目标上游", targetText);
 
   if (snap && snap.lastError) pushFact(frag, "最近错误", node("span", null, String(snap.lastError)));
@@ -134,14 +137,8 @@ function renderFacts(settings, snap) {
 
 function verdictBadge(entry) {
   const badge = node("span", "badge ");
-  if (entry.injected) {
-    badge.classList.add(verdictTone(entry));
-    badge.textContent =
-      entry.matched === true ? "落点一致" : entry.matched === false ? "网关忽略" : "无元数据";
-  } else {
-    badge.classList.add("idle");
-    badge.textContent = "仅观察";
-  }
+  badge.classList.add(entry.injected ? verdictTone(entry) : "idle");
+  badge.textContent = verdictLabel(entry);
   return badge;
 }
 
@@ -192,7 +189,12 @@ function renderLast(snap) {
     landed,
     metric("钉住", entry.pinnedProvider || "—", null, "pinned"),
     metric("备选", fmtCount(entry.fallbackCount), null, "fallbacks"),
-    metric("缓存命中", fmtCount(entry.cacheHitTokens), null, "cache"),
+    metric(
+      "缓存命中",
+      entry.cacheAligned === true ? `${fmtCount(entry.cacheHitTokens)} ·64` : fmtCount(entry.cacheHitTokens),
+      null,
+      entry.cacheAligned === true ? "fingerprint" : "cache",
+    ),
     metric("成本", fmtCost(entry.cost), null, "cost"),
     metric("次数", fmtCount(entry.requests), null, "count"),
   );

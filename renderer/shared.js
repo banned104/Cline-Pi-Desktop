@@ -91,6 +91,16 @@
     return matched === true ? "ok" : matched === false ? "bad" : "idle";
   }
 
+  /** Badge text: one source, so the panel and the docked view cannot disagree. */
+  function verdictLabel(entry) {
+    if (!entry || !entry.injected) return "仅观察";
+    if (entry.matched === true) return "落点一致";
+    if (entry.matched === false) return "网关忽略";
+    // A pin that carries only `has` names no target, so there is nothing to
+    // compare against — say that instead of pretending metadata was missing.
+    return String(entry.injected).startsWith("has:") ? "只写了 has" : "无元数据";
+  }
+
   /**
    * Plain-language explanations of every word the panel shows. The panel renders
    * this as a collapsible glossary and the column headers carry it as tooltips, so
@@ -137,7 +147,19 @@
       key: "verdict",
       label: "校验",
       text:
-        "仅观察 = 你没指定目标上游，没得比；落点一致 = 指定了目标且落在它上面；网关忽略 = 指定了目标却落在别家（实测 Cline 网关不认这个字段，属预期）；无元数据 = 响应里没有 routing 块，判断不了。",
+        "仅观察 = 没开钉住；落点一致 = 指定了目标且落在它上面；网关忽略 = 指定了目标却落在别家（多半是没填能力过滤 has，或者这个账号只有一条上游、网关无路可走）；只写了 has = 开了能力过滤但没勾目标上游，没有可比的东西；无元数据 = 响应里没有 routing 块，判断不了。",
+    },
+    {
+      key: "gateway",
+      label: "钉住（providerOptions.gateway）",
+      text:
+        "写进请求体的两个字段：only = 只许这些上游；has = 要求上游必须具备的能力（reasoning / tool-use / vision / implicit-caching / structured-output）。必须写成嵌套的 providerOptions.gateway —— 写在顶层的 provider.only 会被 Cline 丢掉。只写 only 在不少账号上不生效，两个一起写才稳。",
+    },
+    {
+      key: "fingerprint",
+      label: "64 对齐（官渠指纹）",
+      text:
+        "DeepSeek 官方通道的提示缓存按 64 个 token 对齐，所以缓存命中数能被 64 整除；同一模型 id 落到私有池时通常对不齐。看到「64」这个小标记，说明这一条大概率真的落在官方通道上。",
     },
     {
       key: "anchor",
@@ -174,6 +196,7 @@
     fmtClock,
     fmtStamp,
     verdictClass,
+    verdictLabel,
     verdictTone,
     TERMS,
     glossaryText,

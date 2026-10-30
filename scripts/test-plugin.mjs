@@ -53,7 +53,7 @@ let settingsStore = {
   enabledModels: "",
   preferredUpstream: "",
   injectRouting: false,
-  hardPin: false,
+  pinAbilities: "vision,implicit-caching",
   toastOnMismatch: true,
   modelThinking: "",
   modelIdOverride: "",
@@ -275,6 +275,145 @@ check(
   parseRouting('{"routing":{"finalProvider":"alibaba"},"cost":0,"marketCost":"0.0004"}').cost === "0.0004",
 );
 
+/* --------------------------------------------------------- cache fingerprint */
+
+check(
+  "a cache hit aligned to 64 reads as the official-lane fingerprint",
+  parseRouting('{"routing":{"finalProvider":"deepseek"},"promptCacheHitTokens":1280}').cacheAligned === true,
+);
+check(
+  "an unaligned cache hit on the deepseek lane is not the official lane",
+  parseRouting('{"routing":{"finalProvider":"deepseek"},"promptCacheHitTokens":1000}').cacheAligned === false,
+);
+check(
+  "no cache hit means nothing to judge",
+  parseRouting('{"routing":{"finalProvider":"deepseek"},"promptCacheHitTokens":0}').cacheAligned === null,
+);
+check(
+  "the fingerprint is only claimed for the deepseek lane",
+  parseRouting('{"routing":{"finalProvider":"fireworks"},"promptCacheHitTokens":1280}').cacheAligned === null,
+);
+
+/* ------------------------------------------------------------- pin injection */
+
+{
+  const pinSource = readFileSync(join(REPO, "main.js"), "utf8");
+  const start = pinSource.indexOf("function injectRouting");
+  const end = pinSource.indexOf("function proxyChat");
+  if (start < 0 || end < 0) throw new Error("injectRouting moved; update the harness");
+  const listOf = (v) =>
+    String(v || "")
+      .split(/[\s,]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  const build = (settings) =>
+    new Function(
+      "settings",
+      "splitSettingList",
+      "selectedUpstreams",
+      `${pinSource.slice(start, end)}; return injectRouting;`,
+    )(settings, listOf, () => listOf(settings.preferredUpstream));
+
+  const pin = build({
+    injectRouting: true,
+    preferredUpstream: "deepseek",
+    pinAbilities: "vision,implicit-caching",
+  });
+  const body = { model: "cline-pass/deepseek-v4.1-flash-1017", messages: [] };
+  const injected = pin(body.model, body);
+  check(
+    "the pin goes into providerOptions.gateway, never the top level",
+    injected === true &&
+      body.provider === undefined &&
+      body.providerOptions?.gateway?.only?.[0] === "deepseek" &&
+      body.providerOptions?.gateway?.has?.join(",") === "vision,implicit-caching",
+    JSON.stringify({ provider: body.provider, providerOptions: body.providerOptions }),
+  );
+
+  const existing = {
+    model: "cline-pass/x",
+    providerOptions: { gateway: { order: ["a"] }, anthropic: { cache: true } },
+  };
+  pin(existing.model, existing);
+  check(
+    "an existing providerOptions block is merged, not replaced",
+    existing.providerOptions.anthropic?.cache === true &&
+      existing.providerOptions.gateway.order?.[0] === "a" &&
+      existing.providerOptions.gateway.only?.[0] === "deepseek",
+    JSON.stringify(existing.providerOptions),
+  );
+
+  const foreign = { model: "glm-5.3" };
+  check(
+    "a non cline-pass model is left alone",
+    pin(foreign.model, foreign) === false && foreign.providerOptions === undefined,
+  );
+
+  const off = build({ injectRouting: false, preferredUpstream: "deepseek", pinAbilities: "vision" });
+  const untouched = { model: "cline-pass/x" };
+  check(
+    "pinning off writes nothing",
+    off(untouched.model, untouched) === false && untouched.providerOptions === undefined,
+  );
+
+  const filterOnly = build({ injectRouting: true, preferredUpstream: "", pinAbilities: "reasoning" });
+  const filterBody = { model: "cline-pass/x" };
+  filterOnly(filterBody.model, filterBody);
+  check(
+    "a capability filter alone is still sent",
+    filterBody.providerOptions?.gateway?.has?.[0] === "reasoning" &&
+      filterBody.providerOptions.gateway.only === undefined,
+    JSON.stringify(filterBody.providerOptions),
+  );
+
+  const matchSource = pinSource.slice(
+    pinSource.indexOf("function matchTargets"),
+    pinSource.indexOf("function recordResult"),
+  );
+  if (matchSource.indexOf("function matchTargets") < 0) throw new Error("matchTargets moved");
+  const match = new Function(`${matchSource}; return matchTargets;`)();
+  check(
+    "a has-only pin reports no comparison instead of a mismatch",
+    match([], "deepseek") === null &&
+      match(["deepseek"], "fireworks") === false &&
+      match(["deepseek"], "deepseek") === true &&
+      match(["deepseek"], null) === null,
+    "",
+  );
+}
+
+/* ------------------------------------------------------- provider list probe */
+
+{
+  const probeSource = readFileSync(join(REPO, "main.js"), "utf8");
+  const start = probeSource.indexOf("function extractProviders");
+  const end = probeSource.indexOf("function probeProviders");
+  if (start < 0 || end < 0) throw new Error("extractProviders moved; update the harness");
+  const extract = new Function(`${probeSource.slice(start, end)}; return extractProviders;`)();
+  const names = extract(
+    '{"error":{"message":"No provider matched. Available providers: \\"deepseek\\", \\"fireworks\\"."}}',
+  );
+  check(
+    "the free probe reads provider names out of the gateway error",
+    names.includes("deepseek") &&
+      names.includes("fireworks") &&
+      !names.includes("error") &&
+      !names.includes("message"),
+    names.join(","),
+  );
+  const probeBody = probeSource.slice(
+    probeSource.indexOf("function probeProviders"),
+    probeSource.indexOf("function injectRouting"),
+  );
+  check(
+    "the free probe carries a capability filter and only parses an error body",
+    probeBody.includes('only: ["__probe__"]') &&
+      probeBody.includes("gateway.has = has") &&
+      probeBody.includes("status >= 400"),
+    "",
+  );
+}
+
 /* --------------------------------------------------- status view + channels */
 
 let openedPanels = 0;
@@ -464,7 +603,7 @@ const smokeSettings = {
   enabledModels: "",
   preferredUpstream: "fireworks",
   injectRouting: true,
-  hardPin: false,
+  pinAbilities: "vision,implicit-caching",
   toastOnMismatch: true,
   modelThinking: "",
   modelIdOverride: "",
@@ -558,12 +697,22 @@ for (const script of ["renderer/view.js", "renderer/panel.js"]) {
   const sharedWindow = {};
   new Function("window", readFileSync(`${REPO}/renderer/shared.js`, "utf8"))(sharedWindow);
   const terms = sharedWindow.ClinePassPanel.TERMS;
-  const expected = ["upstream", "landed", "pinned", "fallbacks", "cache", "cost", "verdict", "count", "anchor", "names"];
+  const expected = ["upstream", "landed", "pinned", "fallbacks", "cache", "cost", "verdict", "gateway", "fingerprint", "count", "anchor", "names"];
   const missing = expected.filter((key) => !terms.some((t) => t.key === key && t.label && t.text));
   check(
     "the glossary defines every word the panel shows",
     missing.length === 0,
     missing.length ? `missing ${missing.join(", ")}` : `${terms.length} terms`,
+  );
+
+  const label = sharedWindow.ClinePassPanel.verdictLabel;
+  check(
+    "a has-only pin reads as 只写了 has, not as a missing-metadata case",
+    label({ injected: "has:vision", matched: null }) === "只写了 has" &&
+      label({ injected: "deepseek", matched: null }) === "无元数据" &&
+      label({ injected: null }) === "仅观察" &&
+      label({ injected: "deepseek", matched: false }) === "网关忽略",
+    label({ injected: "has:vision", matched: null }),
   );
 
   const zh = readFileSync(`${REPO}/README.md`, "utf8");

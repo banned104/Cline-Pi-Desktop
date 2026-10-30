@@ -133,7 +133,7 @@ input[type="text"], #preferred {
   outline: none;
 }
 
-#preferred:focus {
+#preferred:focus, #abilities:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }

@@ -105,12 +105,41 @@ checkboxes, per-model default thinking level, target upstreams, probe and anchor
 | cost | `marketCost`, else `inferenceCost`, else `cost` (a private lane reports 0) |
 | verdict | observe-only / matched / gateway ignored / no metadata |
 
-### Target upstreams and "gateway ignored"
+### Pinning an upstream (`providerOptions.gateway`)
 
-Ticking target upstreams plus "写入 routing（实验）" adds `provider: { only: [...] }`
-(optionally `allow_fallbacks: false`) and compares the response's `finalProvider`.
-**The gateway ignores that field**, so the panel shows "网关忽略" — expected today,
-not a misconfiguration.
+Tick your target upstreams (they become `only`), fill in the capability filter
+`has`, and switch on **钉住上游**. The plugin then writes this at the **top level
+of the request body**:
+
+```json
+"providerOptions": { "gateway": { "only": ["deepseek"], "has": ["vision", "implicit-caching"] } }
+```
+
+Two measured facts force that shape:
+
+- **A top-level `provider.only` is dropped by Cline** (and `allow_fallbacks` is
+  not a field the gateway knows). That is why the 2.2.x "write routing" switch
+  looked like "the gateway ignores client routing" — the field was in the wrong
+  place.
+- **`only` alone does not bite on many accounts**: the virtual model's own
+  server-side fallbacks override it. Add `has` and it becomes stable.
+
+`has` accepts `reasoning` / `tool-use` / `vision` / `implicit-caching` /
+`structured-output`; any one is enough.
+
+To tell whether it really pinned, read `provider_metadata.gateway.routing.finalProvider`
+(the panel's *landed* column) — **never** the top-level `model` echoed to the
+client, which is always `vmc/...-fallbacks` either way. A cache-hit count divisible
+by 64 (the little "64" in the cache column) is a second fingerprint of the
+official lane.
+
+The **候选** button at the end of a model row asks the gateway which upstreams that
+model can land on, for free: the plugin names an upstream that cannot exist, and
+the routing layer answers the rejection with the real list — no tokens spent. If
+your target is not on that list, the account cannot be pinned at all.
+
+Background and the controlled experiments:
+[docs/linuxdo-3064863-deepseek-pin](docs/linuxdo-3064863-deepseek-pin/README.md).
 
 ### Anchoring an upstream
 
