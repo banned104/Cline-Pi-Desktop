@@ -25,10 +25,17 @@ for (const file of ["manifest.json", "main.js"]) {
 }
 cpSync(join(REPO, "renderer"), join(HARNESS, "renderer"), { recursive: true });
 
-// Patch the copy's port: the real plugin owns 41892 while PI runs.
+// Patch the copy only: main.js listens on the harness port, and the manifest's
+// loopback baseUrl must agree or the roles check would compare two different ports.
 const mainCopy = readFileSync(join(HARNESS, "main.js"), "utf8");
 if (!mainCopy.includes("const PORT = 41892;")) throw new Error("main.js PORT line moved");
 writeFileSync(join(HARNESS, "main.js"), mainCopy.replace("const PORT = 41892;", `const PORT = ${HARNESS_PORT};`), "utf8");
+const manifestCopy = readFileSync(join(HARNESS, "manifest.json"), "utf8");
+writeFileSync(
+  join(HARNESS, "manifest.json"),
+  manifestCopy.replace(/http:\/\/127\.0\.0\.1:41892/g, `http://127.0.0.1:${HARNESS_PORT}`),
+  "utf8",
+);
 
 const results = [];
 const check = (name, ok, detail = "") => {
@@ -170,17 +177,18 @@ check(
 
 const applied = await mod.onPanelInvoke("applyModels", null);
 const publishedManifest = JSON.parse(readFileSync(`${HARNESS}/manifest.json`, "utf8"));
-const upstreamModels = publishedManifest.contributes.providers.find((p) => p.id === "clinepass-upstream").models;
-const directModels = publishedManifest.contributes.providers.find((p) => p.id === "clinepass").models;
+// The observed row is narrowed; the escape hatch must stay complete.
+const observedModels = publishedManifest.contributes.providers.find((p) => p.id === "clinepass").models;
+const directModels = publishedManifest.contributes.providers.find((p) => p.id === "clinepass-direct").models;
 check(
-  "applyModels republishes the observer provider only",
-  upstreamModels.length === 2 && directModels.length === 15,
-  `applied ${applied?.applied}, upstream ${upstreamModels.length}, direct ${directModels.length}`,
+  "applyModels narrows the observed row only",
+  observedModels.length === 2 && directModels.length === 15,
+  `applied ${applied?.applied}, observed ${observedModels.length}, direct ${directModels.length}`,
 );
 check(
   "republished entries keep the official numbers",
-  upstreamModels.every((m) => m.contextWindow > 0 && m.maxTokens > 0 && m.defaultThinkingLevel),
-  JSON.stringify(upstreamModels.map((m) => [m.id, m.defaultThinkingLevel])),
+  observedModels.every((m) => m.contextWindow > 0 && m.maxTokens > 0 && m.defaultThinkingLevel),
+  JSON.stringify(observedModels.map((m) => [m.id, m.defaultThinkingLevel])),
 );
 
 // The settings listener path (debounced 1500ms) must write once, not loop.
@@ -188,11 +196,27 @@ const beforeListener = readFileSync(`${HARNESS}/manifest.json`, "utf8");
 settingsListener?.({ enabledModels: "cline-pass/glm-5.3" });
 await new Promise((r) => setTimeout(r, 2000));
 const afterListener = JSON.parse(readFileSync(`${HARNESS}/manifest.json`, "utf8"));
-const afterModels = afterListener.contributes.providers.find((p) => p.id === "clinepass-upstream").models;
+const afterModels = afterListener.contributes.providers.find((p) => p.id === "clinepass").models;
 check(
   "settingsChanged republishes after the debounce",
   afterModels.length === 1 && afterModels[0].id === "cline-pass/glm-5.3",
-  `${afterModels.length} model(s), changed=${beforeListener !== readFileSync(`${HARNESS}/manifest.json`, "utf8")}`,
+  `${afterModels.length} model(s)`,
+);
+
+// Roles must stay as declared: the observed row is the loopback one (whose id
+// carries the user's stored key) and the escape hatch is the direct URL.
+const declaredProviders = manifestObj.contributes.providers;
+const observedRow = declaredProviders.find((p) => p.id === "clinepass");
+const directRow = declaredProviders.find((p) => p.id === "clinepass-direct");
+check(
+  "clinepass is the observed loopback row",
+  observedRow?.baseUrl === `http://127.0.0.1:${HARNESS_PORT}/v1` && observedRow.authKind === "api_key",
+  `${observedRow?.baseUrl} (${observedRow?.authKind})`,
+);
+check(
+  "clinepass-direct is the escape hatch",
+  directRow?.baseUrl === "https://api.cline.bot/api/v1",
+  String(directRow?.baseUrl),
 );
 
 /* ------------------------------------------------------------------ off */

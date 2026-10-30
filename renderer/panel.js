@@ -399,7 +399,7 @@ function renderTable(settings) {
     cell.colSpan = 8;
     cell.className = "empty";
     cell.textContent =
-      "还没有请求记录：把模型切到「ClinePass 上游」这个服务商的任意 cline-pass/* 模型发一条消息，这里会按请求逐条记下来。";
+      "还没有请求记录：用 ClinePass 的任意 cline-pass/* 模型发一条消息，这里会按请求逐条记下来。";
     tr.appendChild(cell);
     el.rows.replaceChildren(tr);
     return;
@@ -449,12 +449,18 @@ function renderHints(settings) {
   const snap = snapshotOf(settings) || {};
   const keySource = snap.keySource || (settings.apiKey || settings.apiKeyEnc ? "plugin" : "none");
   const targets = splitList(settings.preferredUpstream);
+  const hasRecords = Object.keys(snap.models || {}).length > 0 || (snap.log || []).length > 0;
 
-  if (keySource === "none") {
-    el.hint.className = "hint warn";
+  if (!hasRecords && keySource === "none") {
+    // Nothing has passed through yet and no key has been seen. The host holds the
+    // key and a plugin cannot read it, so do not claim it is missing — say what to
+    // do instead.
+    el.hint.className = "hint";
     el.hint.textContent =
-      "还没有可用的 ClinePass API Key：设置 → Providers → ClinePass Upstream 填一个（推荐，插件转发时直接用宿主发来的这个 key），" +
-      "或填在 设置 → 插件 → ClinePass 的「API Key」里（可选，仅用于拉目录与探测）。没有 key 时插件无法转发请求。";
+      "怎么开始：\n" +
+      "1. 直接用 ClinePass 的任意模型发一条消息 —— 现在所有 ClinePass 请求都会经过这里，发完就会出现在下面的表里。\n" +
+      "2. 如果发消息时报「没有 API Key」：设置 → Providers → ClinePass 填好 key（这一行就是本插件的入口）。\n" +
+      "3. 想临时绕开插件：把模型切到 ClinePass Direct（直连 api.cline.bot，不经过记录）。";
   } else if (targets.length && settings.injectRouting) {
     el.hint.className = "hint warn";
     el.hint.textContent =
@@ -466,11 +472,11 @@ function renderHints(settings) {
   } else {
     el.hint.className = "hint";
     el.hint.textContent =
-      "本插件负责观察：每个请求落在哪个上游、还有多少备选、花了多少钱。直连的「ClinePass」服务商不经过这里，因此不会被记录。";
+      "本插件负责观察：每个请求落在哪个上游、还有多少备选、花了多少钱。ClinePass Direct 那一条是直连，不经过这里，所以不会被记录。";
   }
 
   if (keySource === "host") {
-    el.hint.textContent += "\nKey 来源：宿主为该服务商行发送的 Authorization 头（插件不落盘）。";
+    el.hint.textContent += "\nKey 来源：宿主为 ClinePass 这一行发送的 Authorization 头（插件不落盘）。";
   } else if (keySource === "plugin") {
     el.hint.textContent += snap.keySealed
       ? "\nKey 来源：插件设置（Windows DPAPI 加密存放）。"
@@ -554,8 +560,8 @@ async function save() {
     if (applied && typeof applied.applied === "number") {
       el.hint.className = "hint";
       el.hint.textContent =
-        `已保存：ClinePass 上游这个服务商的清单改为 ${applied.applied} 个（可选 ${applied.available} 个）。` +
-        "PI 的模型下拉框要重启 PI 后才会跟着变；直连的「ClinePass」服务商不受影响。";
+        `已保存：ClinePass 这个服务商的清单改为 ${applied.applied} 个（可选 ${applied.available} 个）。` +
+        "PI 的模型下拉框要重启 PI 后才会跟着变；ClinePass Direct 不受影响。";
     }
     await refresh(true);
   } catch (error) {

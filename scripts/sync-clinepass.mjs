@@ -38,10 +38,14 @@ import { dirname, join } from "node:path";
  const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
  const MANIFEST_PATH = join(REPO_ROOT, "manifest.json");
  
-/** Provider ids in `manifest.json` to keep in sync — both declare the same list. */
-const PROVIDER_ID = "clinepass";
-const UPSTREAM_PROVIDER_ID = "clinepass-upstream";
-const PROVIDER_IDS = [PROVIDER_ID, UPSTREAM_PROVIDER_ID];
+/**
+ * Provider ids in `manifest.json` to keep in sync. Both declare the same list;
+ * `clinepass` is the observed row (loopback) and `clinepass-direct` the escape
+ * hatch. Never anchor on position — the sync writes both by id.
+ */
+const OBSERVED_PROVIDER_ID = "clinepass";
+const DIRECT_PROVIDER_ID = "clinepass-direct";
+const PROVIDER_IDS = [OBSERVED_PROVIDER_ID, DIRECT_PROVIDER_ID];
  
  /** Only these model ids belong to the subscription this provider bills against. */
  const CLINE_PASS_PREFIX = "cline-pass/";

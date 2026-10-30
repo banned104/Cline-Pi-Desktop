@@ -5,14 +5,18 @@
  *
  * `manifest.json` declares two providers over the same 15 ClinePass models:
  *
- *   clinepass           → https://api.cline.bot/api/v1   (direct, host-stored key)
- *   clinepass-upstream  → http://127.0.0.1:41892/v1      (this plugin, same models)
+ *   clinepass        → http://127.0.0.1:41892/v1       (this plugin: observed)
+ *   clinepass-direct → https://api.cline.bot/api/v1    (escape hatch, unobserved)
  *
- * The loopback one exists because Cline's gateway answers every response with
- * its own `routing` object (finalProvider, pinnedProvider, fallbacksAvailable,
- * promptCacheHitTokens, cost) and the host never parses it. The only way to see
- * which upstream served a request is to sit in the request path, so this plugin
- * forwards to api.cline.bot and tees the stream to read that block.
+ * The observed row is the one the user already had, so their stored key and their
+ * model selection keep working untouched — requests simply pass through here now.
+ * That matters: an observer that needs a second key and a manual model switch
+ * stays empty forever, which is exactly what shipped in 2.1.x.
+ *
+ * Cline's gateway answers every response with its own `routing` object
+ * (finalProvider, pinnedProvider, fallbacksAvailable, promptCacheHitTokens, cost)
+ * and the host never parses it. The only way to see it is to sit in the request
+ * path, so this plugin forwards to api.cline.bot and tees the stream.
  *
  * Facts this file depends on (measured upstream, not assumed):
  *
@@ -50,8 +54,14 @@ const PORT = 41892;
 const UPSTREAM_HOST = "api.cline.bot";
 const UPSTREAM_BASE = "/api/v1";
 
-const PROVIDER_DIRECT = "clinepass";
-const PROVIDER_UPSTREAM = "clinepass-upstream";
+/**
+ * The row this plugin intercepts: its baseUrl is the loopback endpoint, so every
+ * request through it is forwarded and observed. It keeps the id the user's key is
+ * already stored against, and it is the only row the panel narrows.
+ */
+const PROVIDER_OBSERVED = "clinepass";
+/** The always-direct escape hatch: complete list, never narrowed, never observed. */
+const PROVIDER_CATALOG = "clinepass-direct";
 const SERVICE_ID = "clinepass-upstream-host";
 
 const MAX_REQUEST_BYTES = 32 * 1024 * 1024;
@@ -263,16 +273,17 @@ function modelsOf(id) {
 }
 
 /**
- * The catalog the sync script owns: `clinepass` declares the official list from
- * Cline's own catalog, so it is the source of truth for ids and metadata.
+ * The catalog the sync script owns: `clinepass-direct` always declares the full
+ * list from Cline's own catalog, so it is the source of truth for ids/metadata —
+ * including while the panel has narrowed the observed row.
  */
 function officialModels() {
-  return modelsOf(PROVIDER_DIRECT);
+  return modelsOf(PROVIDER_CATALOG);
 }
 
-/** What the observer provider currently declares — the panel narrows this. */
+/** What the observed row currently declares — the panel narrows this one. */
 function upstreamDeclared() {
-  return modelsOf(PROVIDER_UPSTREAM);
+  return modelsOf(PROVIDER_OBSERVED);
 }
 
 /** Metadata lookup: official list wins, then whatever the observer declares. */
@@ -375,9 +386,9 @@ function publishModels(ids) {
   }
   const list = doc?.contributes?.providers;
   if (!Array.isArray(list)) return false;
-  const provider = list.find((p) => p && p.id === PROVIDER_UPSTREAM);
+  const provider = list.find((p) => p && p.id === PROVIDER_OBSERVED);
   if (!provider) {
-    log("warn", `manifest has no ${PROVIDER_UPSTREAM} provider to publish into`);
+    log("warn", `manifest has no ${PROVIDER_OBSERVED} provider to publish into`);
     return false;
   }
   if (!ids.length) {
@@ -414,7 +425,7 @@ function publishModels(ids) {
   try {
     fs.writeFileSync(tmp, JSON.stringify(doc, null, 2) + "\n", "utf8");
     fs.renameSync(tmp, target);
-    log("info", `declaration updated: ${next.length} model(s) on ${PROVIDER_UPSTREAM}`);
+    log("info", `declaration updated: ${next.length} model(s) on ${PROVIDER_OBSERVED}`);
     return true;
   } catch (error) {
     try {

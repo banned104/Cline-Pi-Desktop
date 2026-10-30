@@ -205,7 +205,7 @@ function renderLast(snap) {
       node(
         "div",
         "empty",
-        "还没有请求记录：把模型切到「ClinePass Upstream」的任意 cline-pass/* 发一条消息。",
+        "还没有请求记录：用 ClinePass 的任意模型发一条消息。",
       ),
     );
     return;
@@ -277,14 +277,17 @@ function renderHints(settings, snap) {
   if (!snap) {
     lines.push("插件还没有发布快照：重启 PI 后再看，或先发一条消息。");
   }
-  if (keySource === "none") {
-    lines.push("没有可用的 ClinePass API Key：设置 → Providers → ClinePass Upstream 填一个。");
+  const hasRecords = Boolean(snap && (Object.keys(snap.models || {}).length || (snap.log || []).length));
+  // Never claim the key is missing: the host holds it and a plugin cannot read it.
+  if (!hasRecords && keySource === "none") {
+    lines.push("还没有请求经过这里：用 ClinePass 的任意模型发一条消息，落点就会出现在上面。");
+    lines.push("如果发消息时报「没有 API Key」：设置 → Providers → ClinePass 填好 key。");
   }
   if (snap && snap.listening === false) {
-    lines.push("回环端点没有在跑：看插件日志（端口 41892 可能被占用）。");
+    lines.push("回环端点没有在跑：看插件日志（端口 41892 可能被占用）。要临时绕开，把模型切到 ClinePass Direct。");
   }
   if (snap && Array.isArray(snap.declared) && snap.declared.length === 0) {
-    lines.push("「ClinePass Upstream」这一行还没有模型：在完整面板里保存一次。");
+    lines.push("ClinePass 这一行还没有模型：在完整面板里保存一次。");
   }
   el.hint.className = lines.length ? "hint warn" : "hint";
   el.hint.textContent = lines.join("\n");
