@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="color-scheme" content="dark light" />
+    <title>ClinePass 状态</title>
+    <link rel="stylesheet" href="view.css" />
+  </head>
+  <body>
+    <header class="bar">
+      <div class="brand"><span class="pulse" id="pulse"></span>ClinePass 状态</div>
+      <div class="bar-actions">
+        <span class="status" id="status">读取中…</span>
+        <button class="ghost tiny" id="refresh" type="button" title="立即重新读取">刷新</button>
+      </div>
+    </header>
+
+    <main class="scroll">
+      <section class="card">
+        <div class="card-head">当前状态</div>
+        <dl class="facts" id="facts"></dl>
+      </section>
+
+      <section class="card">
+        <div class="card-head">最近一次请求</div>
+        <div id="last" class="last"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">最近请求 <span class="sub" id="log-count"></span></div>
+        <div id="log" class="log"></div>
+      </section>
+
+      <p class="hint" id="hint"></p>
+    </main>
+
+    <footer class="foot">
+      <button class="primary tiny" id="open" type="button">打开完整面板</button>
+      <button class="ghost tiny" id="clear" type="button">清空记录</button>
+      <span class="sub" id="foot-note"></span>
+    </footer>
+
+    <script src="view.js"></script>
+  </body>
+</html>

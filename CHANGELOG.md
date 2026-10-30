@@ -1,5 +1,22 @@
 # 更新说明
 
+## 2.1.0 — 右侧状态面板
+
+除了独立窗口的完整面板，新增一个**停靠在 PI-Desktop 右侧工作面板里的状态视图**
+（`contributes.views`，需要 `ui.view` 权限）：
+
+- 命令「ClinePass: 在右侧显示状态」打开它，也可以从右侧工作面板的插件视图菜单进入。
+- 内容是同一份快照的紧凑版：当前状态（端点是否在跑、开关、Key 来源、模型与目录、目标上游、
+  最近错误）、最近一次请求（落点 / 钉住 / 备选 / 缓存命中 / 成本 / 次数）、最近 20 条请求。
+- 底部按钮：打开完整面板、清空记录。
+- 视图是只读的；勾选、探测与保存仍然只在完整面板里做。
+
+**权限**：新增 `ui.view`，升级后宿主会要求重新授权。
+
+**其它**：快照里补了 `listening` 与 `lastError`，状态视图据此显示端点是否在跑；
+清单里声明的命令与插件注册的处理函数现在一一对应（新增的 `clinepass.status.reveal`
+一开始漏了处理函数，一并补上）。
+
 ## 2.0.0 — 融入上游观察（Cline Upstream）
 
 把 [moyunliuyin/pi-desktop-cline-upstream](https://github.com/moyunliuyin/pi-desktop-cline-upstream)

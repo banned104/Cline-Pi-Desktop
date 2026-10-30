@@ -28,9 +28,9 @@
 
 1. 打开 PI-Desktop → **设置 → 插件（Plugins）**
 2. 用 **Install from folder** 选中本目录，或安装 `dist/pi.clinepass-2.0.0.piplug`
-3. 批准权限：`provider.register`、`ui.panel`、`background.service`
+3. 批准权限：`provider.register`、`ui.panel`、`ui.view`、`background.service`
 
-升级到 2.0.0 会新增两项权限，宿主会要求你重新授权。
+2.0.0 与 2.1.0 各自新增了权限（`ui.panel`/`background.service`、`ui.view`），宿主会要求你重新授权。
 
 ## 填凭据
 
@@ -143,6 +143,25 @@ ClinePass 的同一个模型背后挂着二十多个上游（DeepSeek 官方、F
 
 日志按请求逐条记录，只保留最近 60 条（插件数据目录里 200 条），不含请求内容。
 
+### 右侧状态面板（工作面板）
+
+除了独立窗口的完整面板，插件还提供一个**停靠在 PI-Desktop 右侧工作面板里的状态视图**：
+在命令面板跑 **「ClinePass: 在右侧显示状态」**，或在右侧工作面板的插件视图菜单里选 **ClinePass 状态**。
+
+它是同一份快照的紧凑版，窄栏也能看：
+
+| 区块 | 内容 |
+| --- | --- |
+| 当前状态 | 观察端点是否在跑、开关、Key 来源、启用/官方模型数、目录刷新情况、目标上游、最近错误 |
+| 最近一次请求 | 模型（被改写过会显示 `→ 实际 id`）、实际落点、钉住、备选、缓存命中、成本、次数、校验 |
+| 最近请求 | 最近 20 条，一行一条：时间 / 模型 / 落点 / 备选·缓存·成本 |
+
+底部两个按钮：**打开完整面板**、**清空记录**。视图每 3 秒读一次插件快照；写入仍然只发生在
+完整面板里点保存的时候。
+
+注意：工作面板是**按会话**的，宿主需要一个活动会话才会显示视图；没有会话时命令会失败，
+这时直接开完整面板即可。
+
 ### 目标上游与「网关忽略」
 
 勾选目标上游并打开「写入 routing（实验）」，插件会加 `provider: { only: [...] }`（可选
@@ -202,7 +221,7 @@ ClinePass 的同一个模型背后挂着二十多个上游（DeepSeek 官方、F
 
 ```
 main.js                        回环转发 + routing 解析 + 面板通道 + 声明改写
-renderer/                      面板（index.html / panel.css / panel.js）
+renderer/                      完整面板（index.html / panel.css / panel.js）与右侧状态视图（view.html / view.css / view.js）
 manifest.json                  两个 provider + 面板/命令/服务/设置
 scripts/sync-clinepass.mjs     从 Cline 官方目录同步两个 provider 的模型表
 dist/                          打包产物（store-only zip，扩展名 .piplug）

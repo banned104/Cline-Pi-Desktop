@@ -1,0 +1,182 @@
+/* ClinePass status view — a narrow column docked in the host work panel. */
+
+:root {
+  --bg: #14131a;
+  --bg-soft: #1b1a23;
+  --bg-row: #191822;
+  --line: #2a2833;
+  --line-soft: #221f2b;
+  --text: #e8e6f0;
+  --text-dim: #a09cae;
+  --text-faint: #6f6b7d;
+  --accent: #8b7bd8;
+  --accent-soft: #2a2440;
+  --ok: #55c98a;
+  --warn: #e0a55b;
+  --bad: #e2686a;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f7f6f9;
+    --bg-soft: #ffffff;
+    --bg-row: #ffffff;
+    --line: #e2dfe8;
+    --line-soft: #eceaf1;
+    --text: #211f28;
+    --text-dim: #5c5867;
+    --text-faint: #8b8797;
+    --accent: #6c5cc4;
+    --accent-soft: #efecfa;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font: 12.5px/1.5 system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+body { display: flex; flex-direction: column; min-width: 280px; }
+
+/* ---------------------------------------------------------------- header */
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.brand { display: flex; align-items: center; gap: 7px; font-weight: 600; letter-spacing: 0.2px; }
+
+.pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  box-shadow: 0 0 0 0 rgba(85, 201, 138, 0.5);
+}
+.pulse.live { background: var(--ok); animation: beat 2.4s ease-out infinite; }
+.pulse.down { background: var(--bad); }
+@keyframes beat {
+  0% { box-shadow: 0 0 0 0 rgba(85, 201, 138, 0.45); }
+  70% { box-shadow: 0 0 0 6px rgba(85, 201, 138, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(85, 201, 138, 0); }
+}
+
+.bar-actions { display: flex; align-items: center; gap: 6px; }
+.status { color: var(--text-dim); font-size: 11px; white-space: nowrap; }
+
+button {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 4px 9px;
+  cursor: pointer;
+}
+button:hover { border-color: var(--accent); }
+button:disabled { opacity: 0.5; cursor: default; }
+button.primary { background: var(--accent-soft); border-color: var(--accent); }
+button.tiny { padding: 3px 8px; font-size: 11.5px; }
+
+/* ------------------------------------------------------------------ body */
+
+.scroll { flex: 1; overflow-y: auto; padding: 10px 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+
+.card {
+  background: var(--bg-soft);
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  padding: 9px 11px 11px;
+}
+
+.card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-faint);
+  margin-bottom: 7px;
+}
+
+.sub { color: var(--text-faint); font-size: 11px; text-transform: none; letter-spacing: 0; }
+
+.facts { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; margin: 0; }
+.facts dt { color: var(--text-dim); white-space: nowrap; }
+.facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.mono { font-family: var(--mono); font-size: 11.5px; }
+
+.dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+.dot.ok { background: var(--ok); }
+.dot.bad { background: var(--bad); }
+.dot.idle { background: var(--text-faint); }
+
+/* -------------------------------------------------------------- last req */
+
+.last { display: flex; flex-direction: column; gap: 6px; }
+.last-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.last-model { font-family: var(--mono); font-size: 11.5px; overflow-wrap: anywhere; }
+.last-time { color: var(--text-faint); font-size: 11px; white-space: nowrap; }
+.sent { display: block; color: var(--text-faint); font-size: 11px; }
+
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)); gap: 6px; }
+.metric { background: var(--bg-row); border: 1px solid var(--line-soft); border-radius: 8px; padding: 5px 7px; }
+.metric b { display: block; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.metric span { color: var(--text-faint); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.4px; }
+
+.provider { display: inline-block; padding: 1px 6px; border: 1px solid var(--line); border-radius: 6px; font-size: 11px; }
+.provider.hit { border-color: rgba(85, 201, 138, 0.5); color: var(--ok); }
+.provider.miss { border-color: rgba(226, 104, 106, 0.45); color: var(--bad); }
+
+.badge { display: inline-block; padding: 1px 6px; border-radius: 6px; font-size: 10.5px; border: 1px solid var(--line); }
+.badge.ok { color: var(--ok); background: rgba(85, 201, 138, 0.12); border-color: rgba(85, 201, 138, 0.3); }
+.badge.bad { color: var(--bad); background: rgba(226, 104, 106, 0.12); border-color: rgba(226, 104, 106, 0.3); }
+.badge.idle { color: var(--text-faint); background: var(--bg-row); }
+
+/* ------------------------------------------------------------------- log */
+
+.log { display: flex; flex-direction: column; }
+.row {
+  display: grid;
+  grid-template-columns: 44px 1fr auto;
+  gap: 6px;
+  align-items: baseline;
+  padding: 4px 2px;
+  border-top: 1px solid var(--line-soft);
+}
+.row:first-child { border-top: none; }
+.row .t { color: var(--text-faint); font-size: 10.5px; font-family: var(--mono); }
+.row .m { font-family: var(--mono); font-size: 11px; overflow-wrap: anywhere; }
+.row .r { text-align: right; color: var(--text-dim); font-size: 11px; white-space: nowrap; }
+.row .r b { font-weight: 600; }
+.row .p { display: block; }
+
+.empty { color: var(--text-faint); padding: 6px 2px; }
+
+.hint { margin: 0; color: var(--text-dim); font-size: 11.5px; white-space: pre-wrap; }
+.hint.warn { color: var(--warn); }
+
+/* ------------------------------------------------------------------ foot */
+
+.foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px 10px;
+  border-top: 1px solid var(--line-soft);
+}
+.foot .sub { margin-left: auto; text-align: right; }

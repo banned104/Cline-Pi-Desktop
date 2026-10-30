@@ -1,0 +1,360 @@
+"use strict";
+
+/**
+ * ClinePass status view — the same snapshot the full panel reads, laid out as a
+ * narrow column for the host's work panel.
+ *
+ * Read path: `pluginBridge.invoke("plugin.getSettings")` → the plugin's
+ * `routingSnapshot` string (a view, like a panel, cannot reach loopback).
+ * Buttons go back through the plugin's `onPanelInvoke`: `openFullPanel`,
+ * `clearLog`.
+ */
+
+const el = {
+  status: document.getElementById("status"),
+  pulse: document.getElementById("pulse"),
+  refresh: document.getElementById("refresh"),
+  facts: document.getElementById("facts"),
+  last: document.getElementById("last"),
+  log: document.getElementById("log"),
+  logCount: document.getElementById("log-count"),
+  hint: document.getElementById("hint"),
+  open: document.getElementById("open"),
+  clear: document.getElementById("clear"),
+  footNote: document.getElementById("foot-note"),
+};
+
+let current = {};
+let busy = false;
+
+const POLL_MS = 3000;
+const LOG_ROWS = 20;
+
+/* ----------------------------------------------------------------- bridge */
+
+function bridge() {
+  return window.pluginBridge || null;
+}
+
+async function invoke(channel, payload) {
+  const b = bridge();
+  if (!b || typeof b.invoke !== "function") throw new Error("pluginBridge.invoke 不可用");
+  return b.invoke(channel, payload);
+}
+
+async function readSettings() {
+  const raw = await invoke("plugin.getSettings");
+  const s = (raw && typeof raw === "object" && (raw.settings || raw.value)) || raw;
+  return s && typeof s === "object" ? s : {};
+}
+
+/* ------------------------------------------------------------------ utils */
+
+function snapshotOf(settings) {
+  const raw = settings && settings.routingSnapshot;
+  if (!raw || typeof raw !== "string") return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function splitList(value) {
+  return String(value || "")
+    .split(/[\s,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function shortModel(id) {
+  return String(id || "—").replace(/^cline-pass\//, "");
+}
+
+function fmtClock(ms) {
+  if (!ms) return "—";
+  const d = new Date(ms);
+  const p2 = (n) => String(n).padStart(2, "0");
+  return `${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
+}
+
+function fmtStamp(ms) {
+  if (!ms) return "—";
+  const d = new Date(ms);
+  const p2 = (n) => String(n).padStart(2, "0");
+  return `${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
+}
+
+function fmtCount(v) {
+  return v === null || v === undefined ? "—" : String(v);
+}
+
+function fmtCost(v) {
+  if (!v) return "—";
+  const n = Number(v);
+  if (!Number.isFinite(n)) return String(v);
+  if (n === 0) return "$0";
+  return "$" + (n < 0.01 ? n.toFixed(5) : n.toFixed(4));
+}
+
+function setStatus(text, mode) {
+  el.status.textContent = text;
+  el.pulse.className = "pulse" + (mode === "live" ? " live" : mode === "down" ? " down" : "");
+}
+
+function node(tag, className, text) {
+  const n = document.createElement(tag);
+  if (className) n.className = className;
+  if (text !== undefined && text !== null) n.textContent = String(text);
+  return n;
+}
+
+function factRow(term, valueNode) {
+  const dt = node("dt", null, term);
+  const dd = node("dd");
+  if (typeof valueNode === "string") dd.textContent = valueNode;
+  else dd.appendChild(valueNode);
+  return [dt, dd];
+}
+
+function statusDot(ok, label) {
+  const wrap = node("span");
+  wrap.appendChild(node("span", "dot " + (ok ? "ok" : "bad")));
+  wrap.appendChild(document.createTextNode(label));
+  return wrap;
+}
+
+/* ----------------------------------------------------------------- render */
+
+function renderFacts(settings, snap) {
+  const enabled = settings.enabled !== false;
+  const available = (snap && snap.available) || [];
+  const official = (snap && snap.official) || [];
+  const chosen = splitList(settings.enabledModels);
+  const keySource = (snap && snap.keySource) || (settings.apiKey || settings.apiKeyEnc ? "plugin" : "none");
+  const targets = splitList(settings.preferredUpstream);
+  const cat = (snap && snap.catalog) || null;
+
+  const frag = document.createDocumentFragment();
+
+  for (const [dt, dd] of factRow(
+    "观察端点",
+    statusDot(Boolean(snap && snap.listening), (snap && snap.endpoint) || "http://127.0.0.1:41892/v1"),
+  )) {
+    frag.append(dt, dd);
+  }
+  if (!enabled) {
+    for (const [dt, dd] of factRow("开关", "已停用（转发会返回 503）")) frag.append(dt, dd);
+  }
+
+  const keyText =
+    keySource === "host"
+      ? "宿主为该服务商行签名的 Authorization 头"
+      : keySource === "plugin"
+        ? `插件设置（${snap && snap.keySealed ? "DPAPI 加密" : "明文"}）`
+        : "未配置";
+  for (const [dt, dd] of factRow("Key 来源", keyText)) frag.append(dt, dd);
+
+  const modelText =
+    available.length === 0
+      ? "还没有目录"
+      : chosen.length === 0
+        ? `全部启用（${available.length} 个，官方 ${official.length} 个）`
+        : `已选 ${chosen.length} / 可选 ${available.length}（官方 ${official.length}）`;
+  for (const [dt, dd] of factRow("模型", modelText)) frag.append(dt, dd);
+
+  const catText = cat
+    ? cat.ok
+      ? `${cat.count} 个 · ${fmtClock(cat.at)}`
+      : `${cat.note || "未刷新"} · ${fmtClock(cat.at)}`
+    : "尚未拉取";
+  for (const [dt, dd] of factRow("目录", catText)) frag.append(dt, dd);
+
+  const targetText = targets.length
+    ? `${targets.join(" / ")}${settings.injectRouting ? " · 写入 routing 已开" : " · 只观察"}`
+    : "未指定（只观察）";
+  for (const [dt, dd] of factRow("目标上游", targetText)) frag.append(dt, dd);
+
+  if (snap && snap.lastError) {
+    const bad = node("span", null, String(snap.lastError));
+    for (const [dt, dd] of factRow("最近错误", bad)) frag.append(dt, dd);
+  }
+
+  el.facts.replaceChildren(frag);
+}
+
+function verdictBadge(entry) {
+  const badge = node("span", "badge ");
+  if (entry.injected) {
+    badge.classList.add(entry.matched === true ? "ok" : entry.matched === false ? "bad" : "idle");
+    badge.textContent = entry.matched === true ? "落点一致" : entry.matched === false ? "网关忽略" : "无元数据";
+  } else {
+    badge.classList.add("idle");
+    badge.textContent = "仅观察";
+  }
+  return badge;
+}
+
+function metric(label, value, className) {
+  const box = node("div", "metric");
+  const b = node("b", className || null, value);
+  box.append(b, node("span", null, label));
+  return box;
+}
+
+function renderLast(snap) {
+  const models = Object.values((snap && snap.models) || {});
+  if (models.length === 0) {
+    el.last.replaceChildren(
+      node(
+        "div",
+        "empty",
+        "还没有请求记录：把模型切到「ClinePass Upstream」的任意 cline-pass/* 发一条消息。",
+      ),
+    );
+    return;
+  }
+  const entry = models.reduce((a, b) => ((a && a.at) || 0) >= ((b && b.at) || 0) ? a : b);
+
+  const frag = document.createDocumentFragment();
+  const top = node("div", "last-top");
+  const left = node("div");
+  const modelLine = node("div", "last-model", entry.model);
+  if (entry.sentModel) modelLine.appendChild(node("span", "sent", `→ ${entry.sentModel}`));
+  left.append(modelLine, verdictBadge(entry));
+  top.append(left, node("div", "last-time", fmtStamp(entry.at)));
+  frag.appendChild(top);
+
+  const grid = node("div", "grid2");
+  const landed = node("div", "metric");
+  const landedValue = node("b");
+  const provider = node("span", "provider " + (entry.matched === true ? "hit" : entry.matched === false ? "miss" : ""));
+  provider.textContent = entry.finalProvider || "—";
+  landedValue.appendChild(provider);
+  landed.append(landedValue, node("span", null, "实际落点"));
+  grid.append(
+    landed,
+    metric("钉住", entry.pinnedProvider || "—"),
+    metric("备选", fmtCount(entry.fallbackCount)),
+    metric("缓存命中", fmtCount(entry.cacheHitTokens)),
+    metric("成本", fmtCost(entry.cost)),
+    metric("次数", fmtCount(entry.requests)),
+  );
+  frag.appendChild(grid);
+  el.last.replaceChildren(frag);
+}
+
+function renderLog(snap) {
+  const items = ((snap && snap.log) || []).slice(0, LOG_ROWS);
+  el.logCount.textContent = items.length ? `最近 ${items.length} 条` : "";
+  if (items.length === 0) {
+    el.log.replaceChildren();
+    return;
+  }
+  const frag = document.createDocumentFragment();
+  for (const e of items) {
+    const row = node("div", "row");
+    row.appendChild(node("span", "t", fmtClock(e.at)));
+    const middle = node("span", "m");
+    middle.appendChild(document.createTextNode(shortModel(e.model)));
+    const provider = node("span", "p");
+    const chip = node("span", "provider " + (e.matched === true ? "hit" : e.matched === false ? "miss" : ""));
+    chip.textContent = e.finalProvider || "—";
+    provider.appendChild(chip);
+    middle.appendChild(provider);
+    row.appendChild(middle);
+    const right = node("span", "r");
+    const parts = [];
+    if (e.fallbackCount) parts.push(`备选 ${e.fallbackCount}`);
+    if (e.cacheHitTokens) parts.push(`缓存 ${e.cacheHitTokens}`);
+    if (e.cost) parts.push(fmtCost(e.cost));
+    right.textContent = parts.length ? parts.join(" · ") : "—";
+    row.appendChild(right);
+    frag.appendChild(row);
+  }
+  el.log.replaceChildren(frag);
+}
+
+function renderHints(settings, snap) {
+  const keySource = (snap && snap.keySource) || (settings.apiKey || settings.apiKeyEnc ? "plugin" : "none");
+  const lines = [];
+  if (!snap) {
+    lines.push("插件还没有发布快照：重启 PI 后再看，或先发一条消息。");
+  }
+  if (keySource === "none") {
+    lines.push("没有可用的 ClinePass API Key：设置 → Providers → ClinePass Upstream 填一个。");
+  }
+  if (snap && snap.listening === false) {
+    lines.push("回环端点没有在跑：看插件日志（端口 41892 可能被占用）。");
+  }
+  if (snap && Array.isArray(snap.declared) && snap.declared.length === 0) {
+    lines.push("「ClinePass Upstream」这一行还没有模型：在完整面板里保存一次。");
+  }
+  el.hint.className = lines.length ? "hint warn" : "hint";
+  el.hint.textContent = lines.join("\n");
+}
+
+function render() {
+  const settings = current || {};
+  const snap = snapshotOf(settings);
+  renderFacts(settings, snap);
+  renderLast(snap);
+  renderLog(snap);
+  renderHints(settings, snap);
+  el.footNote.textContent = snap && snap.at ? "更新 " + fmtClock(snap.at) : "等待第一次请求";
+}
+
+/* ------------------------------------------------------------------- ops */
+
+async function refresh() {
+  try {
+    current = await readSettings();
+    render();
+    setStatus("已连接", "live");
+  } catch (error) {
+    setStatus("读取失败", "down");
+    el.hint.className = "hint warn";
+    el.hint.textContent = error && error.message ? error.message : String(error);
+  }
+}
+
+async function withBusy(button, label, work) {
+  if (busy) return;
+  busy = true;
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = label;
+  try {
+    await work();
+  } catch (error) {
+    el.hint.className = "hint warn";
+    el.hint.textContent = error && error.message ? error.message : String(error);
+  } finally {
+    busy = false;
+    button.disabled = false;
+    button.textContent = original;
+  }
+}
+
+el.refresh.addEventListener("click", () => refresh());
+el.open.addEventListener("click", () =>
+  withBusy(el.open, "打开中…", async () => {
+    await invoke("openFullPanel");
+  }),
+);
+el.clear.addEventListener("click", () =>
+  withBusy(el.clear, "清空中…", async () => {
+    await invoke("clearLog");
+    await refresh();
+  }),
+);
+
+/* ------------------------------------------------------------------ boot */
+
+(async function boot() {
+  await refresh();
+  setInterval(() => {
+    if (!busy) refresh();
+  }, POLL_MS);
+})();

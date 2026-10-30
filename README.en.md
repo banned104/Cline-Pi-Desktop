@@ -24,9 +24,10 @@ results to the panel. The direct provider stays purely declarative.
 1. Open PI-Desktop → **Settings → Plugins**.
 2. Use **Install from folder** and pick this directory, or install
    `dist/pi.clinepass-2.0.0.piplug`.
-3. Approve `provider.register`, `ui.panel`, `background.service`.
+3. Approve `provider.register`, `ui.panel`, `ui.view`, `background.service`.
 
-Upgrading to 2.0.0 adds two permissions, so the host asks you to re-approve.
+2.0.0 and 2.1.0 each added permissions (`ui.panel`/`background.service`, then
+`ui.view`), so the host asks you to re-approve.
 
 ## Add your credential
 
@@ -164,6 +165,28 @@ The panel is a read-only observer; writes happen when you press **保存**:
 The log keeps one line per request — the last 60 in the snapshot, 200 in the
 plugin's data directory — and never contains request bodies.
 
+### Status view in the work panel
+
+Besides the full window panel, the plugin ships a **status view that docks into
+PI-Desktop's right-hand work panel**: run the command
+**"ClinePass: 在右侧显示状态"**, or pick **ClinePass 状态** from the work panel's
+plugin-views menu.
+
+It is the same snapshot in a compact shape, readable in a narrow column:
+
+| Block | Contents |
+| --- | --- |
+| Current status | whether the loopback endpoint is listening, the on/off switch, key source, enabled vs official model counts, catalog refresh, target upstreams, last error |
+| Last request | model (with `→ sent id` when it was rewritten), landed upstream, pinned upstream, fallbacks, cache hits, cost, request count, verdict |
+| Recent requests | the last 20, one per line: time / model / upstream / fallbacks · cache · cost |
+
+Two buttons at the bottom: **打开完整面板** (the full window panel, with the
+checkboxes and the probe) and **清空记录**. The view re-reads the snapshot every
+3 seconds; writes still only happen when you press 保存 in the full panel.
+
+Note: the work panel is **per session**, so the host needs an active session to
+show a view; without one the command fails — open the full panel instead.
+
 ### Target upstreams and "gateway ignored"
 
 Tick target upstreams and turn on "写入 routing（实验）" and the plugin adds
@@ -242,7 +265,7 @@ be widened again. The **「全选官方」** button restores all 15 in one click
 
 ```
 main.js                        loopback forwarding + routing parsing + panel channels + declaration rewrite
-renderer/                      panel (index.html / panel.css / panel.js)
+renderer/                      full panel (index.html / panel.css / panel.js) and the docked status view (view.html / view.css / view.js)
 manifest.json                  two providers + panel/commands/service/settings
 scripts/sync-clinepass.mjs     syncs both providers' model lists from Cline's catalog
 dist/                          packaged artifact (store-only zip, .piplug)

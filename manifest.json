@@ -2,13 +2,14 @@
   "schemaVersion": 1,
   "id": "pi.clinepass",
   "name": "ClinePass",
-  "version": "2.0.0",
-  "description": "Adds Cline's ClinePass subscription as two providers: a direct one over Cline's OpenAI-compatible chat completions API, and a loopback one that forwards the same requests and reports which upstream Cline's gateway actually used (finalProvider, pinnedProvider, fallbacksAvailable, prompt-cache hits, cost). Both declare the same 15 ClinePass models, taken from Cline's own catalog.",
+  "version": "2.1.0",
+  "description": "Adds Cline's ClinePass subscription as two providers: a direct one over Cline's OpenAI-compatible chat completions API, and a loopback one that forwards the same requests and reports which upstream Cline's gateway actually used (finalProvider, pinnedProvider, fallbacksAvailable, prompt-cache hits, cost). Ships a docked status view for the host's work panel and a full window panel. Both providers declare the same 15 ClinePass models, taken from Cline's own catalog.",
   "author": "local",
   "main": "main.js",
   "permissions": [
     "provider.register",
     "ui.panel",
+    "ui.view",
     "background.service"
   ],
   "ui": {
@@ -23,12 +24,12 @@
   "i18n": {
     "en": {
       "name": "ClinePass",
-      "description": "Cline's ClinePass subscription as two providers: a direct one, and a loopback one that shows which upstream each request really landed on (with fallbacks, cache hits and cost) and can anchor a model to a chosen upstream by rewriting its id.",
+      "description": "Cline's ClinePass subscription as two providers: a direct one, and a loopback one that shows which upstream each request really landed on (with fallbacks, cache hits and cost) and can anchor a model to a chosen upstream by rewriting its id. Ships a docked status view for the work panel.",
       "safetyNotes": "Runs a loopback OpenAI-compatible endpoint on 127.0.0.1:41892 and forwards chat requests to api.cline.bot. The API key is taken from the Authorization header the host sends for the provider row, or from this plugin's own settings (DPAPI-encrypted on Windows); it is used only to reach api.cline.bot. Responses are read in memory to extract the gateway's routing metadata, and the last result per model is kept in the plugin data directory. Nothing is sent anywhere except api.cline.bot and the local panel."
     },
     "zh-CN": {
       "name": "ClinePass",
-      "description": "把 Cline 的 ClinePass 订阅声明成两个服务商：一个直连，一个走本机回环转发并报告每个请求真实落在哪个上游（含备选、缓存命中与成本），还可以通过改写模型 id 把某个模型锚定到指定上游。",
+      "description": "把 Cline 的 ClinePass 订阅声明成两个服务商：一个直连，一个走本机回环转发并报告每个请求真实落在哪个上游（含备选、缓存命中与成本），还可以通过改写模型 id 把某个模型锚定到指定上游。附带一个停靠在右侧工作面板里的状态视图。",
       "safetyNotes": "在本机 127.0.0.1:41892 跑一个 OpenAI 兼容端点，把对话请求转发到 api.cline.bot。API Key 优先取宿主为该服务商行发送的 Authorization 头，其次取插件自己的设置（Windows 上用 DPAPI 加密），只用于访问 api.cline.bot。响应在内存中读取网关的路由元数据，只把每个模型的最近一次结果存到插件数据目录。除 api.cline.bot 与本地面板外不向任何地方发送数据。"
     }
   },
@@ -44,6 +45,19 @@
           "upstream",
           "上游",
           "路由"
+        ]
+      },
+      {
+        "id": "clinepass.status.reveal",
+        "title": "ClinePass: 在右侧显示状态",
+        "category": "Productivity",
+        "keywords": [
+          "cline",
+          "clinepass",
+          "status",
+          "状态",
+          "面板",
+          "work panel"
         ]
       },
       {
@@ -495,6 +509,18 @@
             "defaultThinkingLevel": "medium"
           }
         ]
+      }
+    ],
+    "views": [
+      {
+        "id": "status",
+        "title": {
+          "en": "ClinePass status",
+          "zh-CN": "ClinePass 状态"
+        },
+        "icon": "target",
+        "entry": "renderer/view.html",
+        "order": 10
       }
     ]
   }

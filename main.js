@@ -214,6 +214,8 @@ function snapshotPayload() {
     keySealed: Boolean(String(settings.apiKeyEnc || "").trim()),
     keySource: keySource(),
     endpoint: `http://${HOST}:${PORT}/v1`,
+    listening: Boolean(server),
+    lastError: state.lastError || null,
   });
 }
 
@@ -1126,14 +1128,23 @@ async function onLoad() {
         },
       });
       await pi.commands.register({
+        id: "clinepass.status.reveal",
+        title: "ClinePass: 在右侧显示状态",
+        run: async () => {
+          // Dock into the session's work panel; fall back to the window panel on
+          // a host that does not offer views.
+          if (pi.ui && typeof pi.ui.revealView === "function") {
+            await pi.ui.revealView({ viewId: "status" });
+          } else {
+            await pi.ui.openPanel();
+          }
+        },
+      });
+      await pi.commands.register({
         id: "clinepass.upstream.clear",
         title: "ClinePass: 清空上游检测记录",
         run: async () => {
-          state.models = {};
-          state.log = [];
-          state.lastError = null;
-          state.updatedAt = Date.now();
-          saveState();
+          clearRecords();
           await toast("已清空上游检测记录");
         },
       });
@@ -1163,11 +1174,21 @@ async function onUnload() {
     if (pi && pi.commands && typeof pi.commands.unregister === "function") {
       await pi.commands.unregister("clinepass.upstream.open");
       await pi.commands.unregister("clinepass.upstream.clear");
+      await pi.commands.unregister("clinepass.status.reveal");
     }
   } catch {
     /* best effort */
   }
   await stopServer();
+}
+
+/** Drop the recorded routing results and the per-request log. */
+function clearRecords() {
+  state.models = {};
+  state.log = [];
+  state.lastError = null;
+  state.updatedAt = Date.now();
+  saveState();
 }
 
 /**
@@ -1212,6 +1233,14 @@ async function onPanelInvoke(channel, payload) {
   }
   if (name === "readState") {
     return { ok: true, settings, available: state.availableModels || [] };
+  }
+  if (name === "openFullPanel") {
+    if (pi && pi.ui && typeof pi.ui.openPanel === "function") await pi.ui.openPanel();
+    return { ok: true };
+  }
+  if (name === "clearLog") {
+    clearRecords();
+    return { ok: true };
   }
   throw new Error("unknown panel channel: " + name);
 }
