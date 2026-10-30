@@ -110,12 +110,13 @@ function node(tag, className, text) {
   return n;
 }
 
-function factRow(term, valueNode) {
+/** Append one `<dt>/<dd>` pair to a facts fragment. */
+function pushFact(frag, term, value) {
   const dt = node("dt", null, term);
   const dd = node("dd");
-  if (typeof valueNode === "string") dd.textContent = valueNode;
-  else dd.appendChild(valueNode);
-  return [dt, dd];
+  if (typeof value === "string") dd.textContent = value;
+  else dd.appendChild(value);
+  frag.append(dt, dd);
 }
 
 function statusDot(ok, label) {
@@ -138,15 +139,12 @@ function renderFacts(settings, snap) {
 
   const frag = document.createDocumentFragment();
 
-  for (const [dt, dd] of factRow(
+  pushFact(
+    frag,
     "观察端点",
     statusDot(Boolean(snap && snap.listening), (snap && snap.endpoint) || "http://127.0.0.1:41892/v1"),
-  )) {
-    frag.append(dt, dd);
-  }
-  if (!enabled) {
-    for (const [dt, dd] of factRow("开关", "已停用（转发会返回 503）")) frag.append(dt, dd);
-  }
+  );
+  if (!enabled) pushFact(frag, "开关", "已停用（转发会返回 503）");
 
   const keyText =
     keySource === "host"
@@ -154,7 +152,7 @@ function renderFacts(settings, snap) {
       : keySource === "plugin"
         ? `插件设置（${snap && snap.keySealed ? "DPAPI 加密" : "明文"}）`
         : "未配置";
-  for (const [dt, dd] of factRow("Key 来源", keyText)) frag.append(dt, dd);
+  pushFact(frag, "Key 来源", keyText);
 
   const modelText =
     available.length === 0
@@ -162,24 +160,21 @@ function renderFacts(settings, snap) {
       : chosen.length === 0
         ? `全部启用（${available.length} 个，官方 ${official.length} 个）`
         : `已选 ${chosen.length} / 可选 ${available.length}（官方 ${official.length}）`;
-  for (const [dt, dd] of factRow("模型", modelText)) frag.append(dt, dd);
+  pushFact(frag, "模型", modelText);
 
   const catText = cat
     ? cat.ok
       ? `${cat.count} 个 · ${fmtClock(cat.at)}`
       : `${cat.note || "未刷新"} · ${fmtClock(cat.at)}`
     : "尚未拉取";
-  for (const [dt, dd] of factRow("目录", catText)) frag.append(dt, dd);
+  pushFact(frag, "目录", catText);
 
   const targetText = targets.length
     ? `${targets.join(" / ")}${settings.injectRouting ? " · 写入 routing 已开" : " · 只观察"}`
     : "未指定（只观察）";
-  for (const [dt, dd] of factRow("目标上游", targetText)) frag.append(dt, dd);
+  pushFact(frag, "目标上游", targetText);
 
-  if (snap && snap.lastError) {
-    const bad = node("span", null, String(snap.lastError));
-    for (const [dt, dd] of factRow("最近错误", bad)) frag.append(dt, dd);
-  }
+  if (snap && snap.lastError) pushFact(frag, "最近错误", node("span", null, String(snap.lastError)));
 
   el.facts.replaceChildren(frag);
 }
