@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "pi.clinepass",
   "name": "ClinePass",
-  "version": "2.2.1",
+  "version": "2.2.2",
   "description": "Adds Cline's ClinePass subscription as a provider that runs through a local observer, so every request reports which upstream Cline's gateway actually used (finalProvider, pinnedProvider, fallbacksAvailable, prompt-cache hits, cost). Ships a docked status view for the host's work panel and a full window panel. A second, always-direct ClinePass Direct provider is the escape hatch. All 15 ClinePass models come from Cline's own catalog.",
   "author": "local",
   "main": "main.js",

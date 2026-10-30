@@ -299,6 +299,22 @@ for (const [html, script] of [
   check(`${script} element ids exist in ${html}`, missing.length === 0, missing.length ? `missing ${missing.join(", ")}` : `${wanted.length} ids`);
 }
 
+// Both pages are classic scripts, so each must load shared.js before its own
+// script or the destructure at the top of the page throws.
+for (const [html, page] of [
+  ["renderer/index.html", "panel.js"],
+  ["renderer/view.html", "view.js"],
+]) {
+  const text = readFileSync(`${REPO}/${html}`, "utf8");
+  const sharedAt = text.indexOf('src="shared.js"');
+  const pageAt = text.indexOf(`src="${page}"`);
+  check(
+    `${html} loads shared.js before ${page}`,
+    sharedAt > 0 && pageAt > sharedAt,
+    `shared@${sharedAt} page@${pageAt}`,
+  );
+}
+
 // The manifest must declare the docked view, its entry must exist, and the
 // permission it needs must be granted.
 const viewContrib = (manifestObj.contributes.views ?? []).find((v) => v.id === "status");
@@ -353,7 +369,7 @@ check(
   JSON.stringify(revealedViews),
 );
 
-/* -------------------------------------- renderer render smoke tests (DOM shim) */
+/* ------------------------------------------------------- renderer render smoke tests (DOM shim) */
 
 /**
  * A render path that throws leaves the page showing "读取失败" plus a raw error
@@ -490,6 +506,10 @@ for (const script of ["renderer/view.js", "renderer/panel.js"]) {
     };
     let failure = null;
     try {
+      // The pages are classic scripts: shared.js must run first, exactly as the
+      // HTML loads them.
+      const shared = new Function("window", "document", "console", readFileSync(`${REPO}/renderer/shared.js`, "utf8"));
+      shared(fakeWindow, dom.document, { log() {}, error() {}, warn() {} });
       const run = new Function(
         "window",
         "document",
@@ -530,6 +550,39 @@ for (const script of ["renderer/view.js", "renderer/panel.js"]) {
       );
     }
   }
+}
+
+/* ------------------------------------------------------- sync script targeting */
+
+// The sync script rewrites both providers by id. Exercise its real functions so a
+// manifest edit cannot silently point them at the wrong block.
+{
+  const syncSource = readFileSync(`${REPO}/scripts/sync-clinepass.mjs`, "utf8");
+  const from = syncSource.indexOf("function closingDelimiter");
+  const to = syncSource.indexOf("async function main");
+  const { providerOf, replaceModelsSection } = new Function(
+    `${syncSource.slice(from, to)}; return { providerOf, replaceModelsSection };`,
+  )();
+  const manifestText = readFileSync(`${REPO}/manifest.json`, "utf8");
+  const observed = providerOf(manifestText, "clinepass");
+  const escapeHatch = providerOf(manifestText, "clinepass-direct");
+  check(
+    "sync targets both providers by id",
+    observed?.models.length === 15 && escapeHatch?.models.length === 15,
+    `observed ${observed?.models.length}, direct ${escapeHatch?.models.length}`,
+  );
+
+  const narrowed = JSON.parse(replaceModelsSection(manifestText, "clinepass", observed.models.slice(0, 2)));
+  const afterObserved = narrowed.contributes.providers.find((p) => p.id === "clinepass");
+  const afterDirect = narrowed.contributes.providers.find((p) => p.id === "clinepass-direct");
+  check(
+    "sync rewrites only the named provider and keeps the rest",
+    afterObserved.models.length === 2 &&
+      afterDirect.models.length === 15 &&
+      narrowed.contributes.views.length === 1 &&
+      narrowed.permissions.length === 4,
+    `observed ${afterObserved.models.length}, direct ${afterDirect.models.length}`,
+  );
 }
 
 /* ----------------------------------------------------------------- teardown */

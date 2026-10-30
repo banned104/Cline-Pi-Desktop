@@ -312,13 +312,29 @@ function knownCatalog() {
   return seen;
 }
 
-function enabledModelSet() {
-  const raw = String(settings.enabledModels || "");
-  if (!raw.trim()) return null;
-  const ids = raw
+/** A comma/space separated list from a string setting. */
+function splitSettingList(value) {
+  return String(value || "")
     .split(/[\s,]+/)
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+/**
+ * A JSON-object setting (`modelThinking`, `modelIdOverride`, `upstreamProbe`).
+ * A malformed value reads as empty instead of throwing on a request path.
+ */
+function readJsonSetting(key) {
+  try {
+    const parsed = JSON.parse(String(settings[key] || "") || "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function enabledModelSet() {
+  const ids = splitSettingList(settings.enabledModels);
   return ids.length ? new Set(ids) : null;
 }
 
@@ -334,12 +350,7 @@ function filterIds(ids) {
 }
 
 function thinkingOverrides() {
-  try {
-    const parsed = JSON.parse(String(settings.modelThinking || "") || "{}");
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
+  return readJsonSetting("modelThinking");
 }
 
 function levelsFor(id) {
@@ -348,20 +359,30 @@ function levelsFor(id) {
   return levels.filter((level) => level !== "none");
 }
 
+/**
+ * The level a model opens on: the saved override, else the declared default,
+ * else the last rung. Shared by the panel data and the published declaration so
+ * the picker and the panel cannot disagree.
+ */
+function resolveDefaultLevel(meta, levels, want) {
+  if (want && levels.indexOf(want) !== -1) return want;
+  const declared = meta && meta.defaultThinkingLevel;
+  if (declared && levels.indexOf(declared) !== -1) return declared;
+  return levels[levels.length - 1] || "";
+}
+
 /** Panel data: every model's level menu and the level it opens on. */
 function modelMetaMap() {
   const overrides = thinkingOverrides();
   const map = {};
   for (const m of [...officialModels(), ...upstreamDeclared()]) {
     const levels = levelsFor(m.id);
-    const want = overrides[m.id];
     map[m.id] = {
       name: m.name || m.id,
       contextWindow: m.contextWindow,
       maxTokens: m.maxTokens,
       levels,
-      default:
-        want && levels.indexOf(want) !== -1 ? want : m.defaultThinkingLevel || levels[levels.length - 1] || "",
+      default: resolveDefaultLevel(m, levels, overrides[m.id]),
     };
   }
   return map;
@@ -398,22 +419,21 @@ function publishModels(ids) {
   const overrides = thinkingOverrides();
   const next = ids.map((id) => {
     const meta = modelMeta(id) || {};
-    const levels = levelsFor(id).length ? levelsFor(id) : ["off", "low", "high", "max"];
-    const want = overrides[id];
-    return {
+    const levels = levelsFor(id);
+    const model = {
       id,
       name: meta.name || id,
       contextWindow: meta.contextWindow || 200000,
       maxTokens: meta.maxTokens || 32000,
       supportsImages: meta.supportsImages !== false,
-      thinkingLevels: levels,
-      defaultThinkingLevel:
-        want && levels.indexOf(want) !== -1
-          ? want
-          : meta.defaultThinkingLevel && levels.indexOf(meta.defaultThinkingLevel) !== -1
-            ? meta.defaultThinkingLevel
-            : levels[levels.length - 1],
     };
+    // A model with no published ladder declares no levels — inventing `off` here
+    // would advertise a choice the manifest cannot express and the docs deny.
+    if (levels.length > 0) {
+      model.thinkingLevels = levels;
+      model.defaultThinkingLevel = resolveDefaultLevel(meta, levels, overrides[id]);
+    }
+    return model;
   });
   // Compare the default level too: changing only the level leaves ids identical.
   const fingerprint = (models) =>
@@ -678,20 +698,12 @@ function forwardHeaders(headers) {
 
 /** A target list: `provider.only` is itself a whitelist array. */
 function selectedUpstreams() {
-  return String(settings.preferredUpstream || "")
-    .split(/[\s,]+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
+  return splitSettingList(settings.preferredUpstream);
 }
 
 /** Id rewrite table: { logical model: id to send instead }. */
 function modelIdOverrides() {
-  try {
-    const parsed = JSON.parse(String(settings.modelIdOverride || "") || "{}");
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
+  return readJsonSetting("modelIdOverride");
 }
 
 function modelIdFor(model) {
@@ -702,12 +714,7 @@ function modelIdFor(model) {
 
 /** Probe results: { logical model: [{ id, status, upstream, fallbacks }] }. */
 function probeCache() {
-  try {
-    const parsed = JSON.parse(String(settings.upstreamProbe || "") || "{}");
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
+  return readJsonSetting("upstreamProbe");
 }
 
 /** Candidate ids: same-family slugs from the full upstream catalog, at most 4. */

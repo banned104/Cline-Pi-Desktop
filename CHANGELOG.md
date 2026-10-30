@@ -1,5 +1,27 @@
 # 更新说明
 
+## 2.2.2 — 把上一轮没修的重构补上
+
+审查报告里我列为「后续」的那几条，这轮全部做完，行为不变、靠测试守住：
+
+- **两个渲染页的重复代码合并**：新增 `renderer/shared.js`（classic script，不能用 ES module ——
+  沙箱 `file://` 页面被 CORS 挡），收纳 bridge/invoke/readSettings、`snapshotOf`、
+  `splitList`、`fmtCount`/`fmtCost`/`fmtClock`/`fmtStamp`，以及落点判定的 `verdictClass`
+  与 `verdictTone`。`panel.js`、`view.js` 改为解构使用，两份各约 70 行的复制消失。
+  两个 HTML 都先加载 `shared.js`；测试新增「加载顺序」断言与该模块的 smoke 运行。
+- **`main.js` 三处重复的 JSON 设置解析 → `readJsonSetting(key)`**，两处重复的逗号/空格拆分 →
+  `splitSettingList(value)`。
+- **「档位→默认档」只保留一处**：新增 `resolveDefaultLevel(meta, levels, want)`，面板数据与
+  发布声明共用。顺带修掉 `publishModels` 在「官方没有阶梯」时**凭空塞 `off`** 的行为
+  ——那会声明一个文档明确说不声明、宿主也表达不了的档位；现在无阶梯就只写 id/名字/长度/图片。
+- **同步脚本去重**：`fetchText` 那种「返回字符串或对象」的联合返回拆成 `fetchJson` +
+  `decodeContentsPayload`；两段字符串感知的括号遍历合成 `closingDelimiter(source, i, open, close)`；
+  删掉永远只会抛错的 `--remote` 开关。测试新增两条：同步脚本按 id 命中两个 provider、
+  只改写被点名的那一块并保留视图/权限。
+
+**升级方式**：装 `pi.clinepass-2.2.2.piplug`，重启 PI。权限未变。
+
+
 ## 2.2.1 — 代码审查发现的问题
 
 2.2.0 之后对 `4704737..HEAD` 做了一次双轴代码审查（标准 / 规格分开跑）。以下是被证实并修掉的：

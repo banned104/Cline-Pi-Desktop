@@ -204,10 +204,10 @@ ClinePass 的同一个模型背后挂着二十多个上游，客户端看不见�
 
 ```
 main.js                        回环转发 + routing 解析 + 面板通道 + 声明改写
-renderer/                      完整面板（index/index.css/panel.js）与右侧状态视图（view.*）
+renderer/                      共享管道（shared.js）+ 完整面板（index/panel.*）+ 右侧状态视图（view.*）
 manifest.json                  两个 provider + 面板/视图/命令/服务/设置
 scripts/sync-clinepass.mjs     从 Cline 官方目录同步两个 provider 的模型表
-scripts/test-plugin.mjs        38 项自测（端点、通道、解析、两个页面真实 render）
+scripts/test-plugin.mjs        43 项自测（端点、通道、解析、两个页面真实 render、同步脚本按 id 改写）
 dist/                          打包产物（store-only zip，扩展名 .piplug）
 ```
 

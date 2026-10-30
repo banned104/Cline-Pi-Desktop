@@ -30,74 +30,24 @@ let busy = false;
 const POLL_MS = 3000;
 const LOG_ROWS = 20;
 
-/* ----------------------------------------------------------------- bridge */
+const {
+  invoke,
+  readSettings,
+  snapshotOf,
+  splitList,
+  fmtClock,
+  fmtStamp,
+  fmtCount,
+  fmtCost,
+  verdictClass,
+  verdictTone,
+} = window.ClinePassPanel;
 
-function bridge() {
-  return window.pluginBridge || null;
-}
 /** One-shot message from a button action; renderHints re-applies it each render. */
 let flash = null;
 
-async function invoke(channel, payload) {
-  const b = bridge();
-  if (!b || typeof b.invoke !== "function") throw new Error("pluginBridge.invoke 不可用");
-  return b.invoke(channel, payload);
-}
-
-async function readSettings() {
-  const raw = await invoke("plugin.getSettings");
-  const s = (raw && typeof raw === "object" && (raw.settings || raw.value)) || raw;
-  return s && typeof s === "object" ? s : {};
-}
-
-/* ------------------------------------------------------------------ utils */
-
-function snapshotOf(settings) {
-  const raw = settings && settings.routingSnapshot;
-  if (!raw || typeof raw !== "string") return null;
-  try {
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-function splitList(value) {
-  return String(value || "")
-    .split(/[\s,]+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
 function shortModel(id) {
   return String(id || "—").replace(/^cline-pass\//, "");
-}
-
-function fmtClock(ms) {
-  if (!ms) return "—";
-  const d = new Date(ms);
-  const p2 = (n) => String(n).padStart(2, "0");
-  return `${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
-}
-
-function fmtStamp(ms) {
-  if (!ms) return "—";
-  const d = new Date(ms);
-  const p2 = (n) => String(n).padStart(2, "0");
-  return `${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
-}
-
-function fmtCount(v) {
-  return v === null || v === undefined ? "—" : String(v);
-}
-
-function fmtCost(v) {
-  if (!v) return "—";
-  const n = Number(v);
-  if (!Number.isFinite(n)) return String(v);
-  if (n === 0) return "$0";
-  return "$" + (n < 0.01 ? n.toFixed(5) : n.toFixed(4));
 }
 
 function setStatus(text, mode) {
@@ -184,8 +134,9 @@ function renderFacts(settings, snap) {
 function verdictBadge(entry) {
   const badge = node("span", "badge ");
   if (entry.injected) {
-    badge.classList.add(entry.matched === true ? "ok" : entry.matched === false ? "bad" : "idle");
-    badge.textContent = entry.matched === true ? "落点一致" : entry.matched === false ? "网关忽略" : "无元数据";
+    badge.classList.add(verdictTone(entry));
+    badge.textContent =
+      entry.matched === true ? "落点一致" : entry.matched === false ? "网关忽略" : "无元数据";
   } else {
     badge.classList.add("idle");
     badge.textContent = "仅观察";
@@ -229,7 +180,7 @@ function renderLast(snap) {
   const grid = node("div", "grid2");
   const landed = node("div", "metric");
   const landedValue = node("b");
-  const provider = node("span", "provider " + (entry.matched === true ? "hit" : entry.matched === false ? "miss" : ""));
+  const provider = node("span", "provider " + verdictClass(entry));
   provider.textContent = entry.finalProvider || "—";
   landedValue.appendChild(provider);
   landed.append(landedValue, node("span", null, "实际落点"));
@@ -259,7 +210,7 @@ function renderLog(snap) {
     const middle = node("span", "m");
     middle.appendChild(document.createTextNode(shortModel(e.model)));
     const provider = node("span", "p");
-    const chip = node("span", "provider " + (e.matched === true ? "hit" : e.matched === false ? "miss" : ""));
+    const chip = node("span", "provider " + verdictClass(e));
     chip.textContent = e.finalProvider || "—";
     provider.appendChild(chip);
     middle.appendChild(provider);

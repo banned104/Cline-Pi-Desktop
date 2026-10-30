@@ -178,10 +178,10 @@ model, which lands in the `clinepass` declaration and applies after a restart.
 
 ```
 main.js                        loopback forwarding + routing parsing + panel channels + declaration rewrite
-renderer/                      full panel (index/panel.*) and the docked status view (view.*)
+renderer/                      shared plumbing (shared.js) + full panel (index/panel.*) + docked view (view.*)
 manifest.json                  two providers + panel/view/commands/service/settings
 scripts/sync-clinepass.mjs     syncs both providers' model lists from Cline's catalog
-scripts/test-plugin.mjs        38 checks (endpoint, channels, parser, both pages' real render)
+scripts/test-plugin.mjs        43 checks (endpoint, channels, parser, both pages' real render, sync by id)
 dist/                          packaged artifact (store-only zip, .piplug)
 ```
 

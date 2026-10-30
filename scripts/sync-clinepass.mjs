@@ -4,7 +4,6 @@
  *
  *   node scripts/sync-clinepass.mjs            # update manifest.json
  *   node scripts/sync-clinepass.mjs --check    # report drift, change nothing
- *   node scripts/sync-clinepass.mjs --remote   # read Cline's live endpoint only
  *
  * Why a script and not runtime discovery
  * --------------------------------------
@@ -75,69 +74,93 @@ const PROVIDER_IDS = [OBSERVED_PROVIDER_ID, DIRECT_PROVIDER_ID];
 const PREFERRED_DEFAULT = ["medium", "high"];
 
 function parseArgs(argv) {
-  return {
-    check: argv.includes("--check"),
-    remoteOnly: argv.includes("--remote"),
-  };
+  return { check: argv.includes("--check") };
 }
 
- async function fetchText(url, label) {
-   let lastError;
-   // Small responses (the live list) are read directly; the 4 MB catalog goes
-   // through the base64 contents channel, because streaming it raw over HTTP/2
-   // truncates the body on some networks.
-   for (let attempt = 1; attempt <= 3; attempt += 1) {
-     try {
-       const response = await fetch(url, {
-         headers: {
-           "user-agent": "pi-clinepass-sync",
-           accept: "application/vnd.github+json",
-         },
-         signal: AbortSignal.timeout(120_000),
-       });
-       if (!response.ok) {
-         throw new Error(`${label}: HTTP ${response.status} from ${url}`);
-       }
-       const payload = await response.json();
-       // A GitHub contents response carries the file base64-encoded under
-       // `content` — but omits it (an empty string) for files above ~1 MB, so
-       // only a non-empty value means "this is the file body". Anything else
-       // (Cline's own endpoints, or contents metadata) is already the data.
-       if (typeof payload?.content === "string" && payload.content.length > 0) {
-         return Buffer.from(payload.content, "base64").toString("utf8");
-       }
-       return payload;
-     } catch (error) {
-       lastError = error;
-       if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 1_500 * attempt));
-     }
-   }
-   throw lastError;
- }
+/** GET a JSON endpoint, retrying transient failures. */
+async function fetchJson(url, label) {
+  let lastError;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        headers: {
+          "user-agent": "pi-clinepass-sync",
+          accept: "application/vnd.github+json",
+        },
+        signal: AbortSignal.timeout(120_000),
+      });
+      if (!response.ok) {
+        throw new Error(`${label}: HTTP ${response.status} from ${url}`);
+      }
+      return await response.json();
+    } catch (error) {
+      lastError = error;
+      if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 1_500 * attempt));
+    }
+  }
+  throw lastError;
+}
+
+/**
+ * The file body a GitHub contents/blob payload carries, or null when it carries
+ * none. The contents API inlines small files base64-encoded under `content` and
+ * omits it (empty string) above ~1 MB, which is why this catalog needs the blob
+ * call; the blob API always inlines.
+ */
+function decodeContentsPayload(payload) {
+  if (typeof payload?.content !== "string" || payload.content.length === 0) return null;
+  return Buffer.from(payload.content, "base64").toString("utf8");
+}
  
  /**
   * The catalog source: resolve the file's blob sha, then read that blob's body.
-  * Kept separate from `fetchText` because it needs two requests and a sha.
+ * Kept separate from `fetchJson` because it needs two requests and a sha.
   */
- async function fetchCatalogSource() {
-   const meta = await fetchText(CATALOG_CONTENTS_URL, "catalog metadata");
-   // Small file: the contents call already returned the decoded body.
-   if (typeof meta === "string") return meta;
-   if (typeof meta?.sha !== "string" || meta.sha === "") {
-     throw new Error("catalog metadata: no blob sha returned");
-   }
-   // Large file: the blob call returns the decoded body directly.
-   const blob = await fetchText(`${CATALOG_BLOB_URL}${meta.sha}`, "catalog blob");
-   if (typeof blob !== "string") {
-     throw new Error("catalog blob: no body returned");
-   }
-   return blob;
- }
+async function fetchCatalogSource() {
+  const meta = await fetchJson(CATALOG_CONTENTS_URL, "catalog metadata");
+  // Small file: the contents call inlined the body.
+  const inline = decodeContentsPayload(meta);
+  if (inline) return inline;
+  // Large file: read the blob the contents call pointed at.
+  if (typeof meta?.sha !== "string" || meta.sha === "") {
+    throw new Error("catalog metadata: no blob sha returned");
+  }
+  const blobPayload = await fetchJson(`${CATALOG_BLOB_URL}${meta.sha}`, "catalog blob");
+  const blob = decodeContentsPayload(blobPayload);
+  if (!blob) throw new Error("catalog blob: no body returned");
+  return blob;
+}
+
+/**
+ * Index of the delimiter that closes the one at `openIndex`, string-aware so
+ * braces/brackets inside string literals do not count. Shared by the catalog
+ * block extractor and the manifest models-list rewriter.
+ */
+function closingDelimiter(source, openIndex, open, close) {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = openIndex; index < source.length; index += 1) {
+    const char = source[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') inString = true;
+    else if (char === open) depth += 1;
+    else if (char === close) {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return -1;
+}
 
 /**
  * Pull the `"cline-pass": { … }` object out of the generated TypeScript catalog
- * and return it as data. Brace matching is string-aware so braces inside
- * descriptions do not end the block early.
+ * and return it as data.
  */
 function extractClinePassBlock(source) {
   const marker = '"cline-pass": {';
@@ -147,27 +170,9 @@ function extractClinePassBlock(source) {
   }
 
   const start = source.indexOf("{", at + marker.length - 1);
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-
-  for (let index = start; index < source.length; index += 1) {
-    const char = source[index];
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (char === "\\") escaped = true;
-      else if (char === '"') inString = false;
-      continue;
-    }
-    if (char === '"') inString = true;
-    else if (char === "{") depth += 1;
-    else if (char === "}") {
-      depth -= 1;
-      if (depth === 0) return JSON.parse(source.slice(start, index + 1));
-    }
-  }
-
-  throw new Error("catalog: the cline-pass block is not closed");
+  const end = closingDelimiter(source, start, "{", "}");
+  if (end < 0) throw new Error("catalog: the cline-pass block is not closed");
+  return JSON.parse(source.slice(start, end + 1));
 }
 
 function effortLevels(reasoningOptions) {
@@ -246,29 +251,7 @@ function replaceModelsSection(source, providerId, models) {
   if (modelsKey < 0) throw new Error(`manifest: provider ${providerId} has no models list`);
 
   const open = source.indexOf("[", modelsKey);
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-  let close = -1;
-
-  for (let index = open; index < source.length; index += 1) {
-    const char = source[index];
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (char === "\\") escaped = true;
-      else if (char === '"') inString = false;
-      continue;
-    }
-    if (char === '"') inString = true;
-    else if (char === "[") depth += 1;
-    else if (char === "]") {
-      depth -= 1;
-      if (depth === 0) {
-        close = index;
-        break;
-      }
-    }
-  }
+  const close = closingDelimiter(source, open, "[", "]");
   if (close < 0) throw new Error(`manifest: provider ${providerId} models list is not closed`);
 
   const body = models.map((model) => renderModel(model)).join(",\n");
@@ -283,17 +266,11 @@ function providerOf(source, providerId) {
 }
 
 async function main() {
-  const { check, remoteOnly } = parseArgs(process.argv.slice(2));
+  const { check } = parseArgs(process.argv.slice(2));
 
-  const remotePayload = await fetchText(RECOMMENDED_URL, "recommended-models");
+  const remotePayload = await fetchJson(RECOMMENDED_URL, "recommended-models");
   const remotePass = Array.isArray(remotePayload?.clinePass) ? remotePayload.clinePass : [];
   const remoteNames = new Map(remotePass.map((entry) => [entry.id, entry.name]));
-
-  if (remoteOnly) {
-    throw new Error(
-      "--remote alone cannot build the manifest: the live list carries no context window, output ceiling or reasoning ladder.",
-    );
-  }
 
   const catalogSource = await fetchCatalogSource();
   const catalog = extractClinePassBlock(catalogSource);

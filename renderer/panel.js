@@ -51,54 +51,36 @@ let lastProbeRows = {};
 /** One-shot message from an action; renderHints re-applies it after each refresh. */
 let flash = null;
 
-/* ----------------------------------------------------------------- bridge */
+/* ---------------------------------------------------------- shared helpers */
 
-function bridge() {
-  return window.pluginBridge || null;
+// Bridge, settings, snapshot and formatters live in renderer/shared.js so the
+// docked view and this panel cannot drift apart.
+const {
+  invoke,
+  readSettings,
+  splitList,
+  snapshotOf,
+  fmtCount,
+  fmtCost,
+  verdictClass,
+  verdictTone,
+} = window.ClinePassPanel;
+
+function setStatus(text, mode) {
+  el.status.textContent = text;
+  el.pulse.className = "pulse" + (mode === "live" ? " live" : mode === "down" ? " down" : "");
 }
 
-async function invoke(channel, payload) {
-  const b = bridge();
-  if (!b || typeof b.invoke !== "function") throw new Error("pluginBridge.invoke 不可用");
-  return b.invoke(channel, payload);
+function markDirty() {
+  dirty = true;
+  el.dirty.classList.add("on");
+  el.save.disabled = false;
 }
 
-async function readSettings() {
-  const raw = await invoke("plugin.getSettings");
-  const s = (raw && typeof raw === "object" && (raw.settings || raw.value)) || raw;
-  return s && typeof s === "object" ? s : {};
-}
-
-/* ----------------------------------------------------------------- utils */
-
-function splitList(value) {
-  return String(value || "")
-    .split(/[\s,]+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
-function parseSnapshot(settings) {
-  const raw = settings && settings.routingSnapshot;
-  if (!raw || typeof raw !== "string") return null;
-  try {
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-function fmtCount(v) {
-  return v === null || v === undefined ? "—" : String(v);
-}
-
-function fmtCost(v) {
-  if (!v) return "—";
-  const n = Number(v);
-  if (!Number.isFinite(n)) return String(v);
-  if (n === 0) return "$0";
-  return "$" + (n < 0.01 ? n.toFixed(5) : n.toFixed(4));
+function clearDirty() {
+  dirty = false;
+  el.dirty.classList.remove("on");
+  el.save.disabled = true;
 }
 
 function setStatus(text, mode) {
@@ -119,10 +101,6 @@ function clearDirty() {
 }
 
 /* ----------------------------------------------------------------- draft */
-
-function snapshotOf(settings) {
-  return parseSnapshot(settings);
-}
 
 function availableModels(settings) {
   const snap = snapshotOf(settings);
@@ -377,12 +355,8 @@ function renderModels(settings) {
   el.models.replaceChildren(frag);
 }
 
-function fmtTime(ms) {
-  if (!ms) return "—";
-  const d = new Date(ms);
-  const p2 = (n) => String(n).padStart(2, "0");
-  return `${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
-}
+/** Same layout as the view's timestamps; one implementation, in shared.js. */
+const fmtTime = window.ClinePassPanel.fmtStamp;
 
 /** 逐条请求日志：一条请求一行，按时间倒序。 */
 function renderTable(settings) {
@@ -420,7 +394,7 @@ function renderTable(settings) {
 
     const final = td("");
     const span = document.createElement("span");
-    span.className = "provider" + (e.matched === true ? " hit" : e.matched === false ? " miss" : "");
+    span.className = "provider " + verdictClass(e);
     span.textContent = e.finalProvider || "—";
     final.appendChild(span);
     tr.appendChild(final);
@@ -433,7 +407,7 @@ function renderTable(settings) {
     const verdict = td("");
     const badge = document.createElement("span");
     if (e.injected) {
-      badge.className = "badge " + (e.matched === true ? "ok" : e.matched === false ? "bad" : "idle");
+      badge.className = "badge " + verdictTone(e);
       badge.textContent = e.matched === true ? "落点一致" : e.matched === false ? "网关忽略" : "无元数据";
     } else {
       badge.className = "badge idle";
