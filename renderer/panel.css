@@ -540,3 +540,27 @@ td.model .sent {
   color: var(--text-faint);
   font-size: 11px;
 }
+
+/* ------------------------------------------------------------- glossary */
+.glossary {
+  margin: 12px 18px 4px;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: var(--bg-soft);
+}
+.glossary summary {
+  cursor: pointer;
+  padding: 8px 12px;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+.glossary summary:hover { color: var(--text); }
+.glossary dl {
+  margin: 0;
+  padding: 2px 12px 12px;
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  gap: 6px 12px;
+}
+.glossary dt { color: var(--text); font-weight: 600; }
+.glossary dd { margin: 0; color: var(--text-dim); line-height: 1.55; }

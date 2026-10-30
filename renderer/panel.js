@@ -64,7 +64,39 @@ const {
   fmtCost,
   verdictClass,
   verdictTone,
+  TERMS,
+  glossaryText,
 } = window.ClinePassPanel;
+
+/**
+ * Every column says what it means: on hover from the header title, and spelled
+ * out in the collapsible glossary under the table. Both read the same TERMS text.
+ */
+function renderGlossary() {
+  const columns = {
+    "th-landed": "landed",
+    "th-pinned": "pinned",
+    "th-fallbacks": "fallbacks",
+    "th-cache": "cache",
+    "th-cost": "cost",
+    "th-verdict": "verdict",
+  };
+  for (const [id, key] of Object.entries(columns)) {
+    const cell = document.getElementById(id);
+    if (cell) cell.title = glossaryText(key);
+  }
+  const list = document.getElementById("glossary-list");
+  if (!list) return;
+  const frag = document.createDocumentFragment();
+  for (const term of TERMS) {
+    const dt = document.createElement("dt");
+    dt.textContent = term.label;
+    const dd = document.createElement("dd");
+    dd.textContent = term.text;
+    frag.append(dt, dd);
+  }
+  list.replaceChildren(frag);
+}
 
 function setStatus(text, mode) {
   el.status.textContent = text;
@@ -575,6 +607,7 @@ bindDraftSwitch(el.hardPin, "hardPin");
 bindDraftSwitch(el.toast, "toast");
 
 (async function boot() {
+  renderGlossary();
   await refresh(false);
   setInterval(() => { if (!dirty) refresh(true); }, 4000);
 })();

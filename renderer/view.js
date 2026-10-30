@@ -41,6 +41,7 @@ const {
   fmtCost,
   verdictClass,
   verdictTone,
+  glossaryText,
 } = window.ClinePassPanel;
 
 /** One-shot message from a button action; renderHints re-applies it each render. */
@@ -144,10 +145,12 @@ function verdictBadge(entry) {
   return badge;
 }
 
-function metric(label, value, className) {
+/** A metric tile; `term` names a TERMS entry so the label explains itself on hover. */
+function metric(label, value, className, term) {
   const box = node("div", "metric");
   const b = node("b", className || null, value);
   box.append(b, node("span", null, label));
+  if (term) box.title = glossaryText(term);
   return box;
 }
 
@@ -179,6 +182,7 @@ function renderLast(snap) {
 
   const grid = node("div", "grid2");
   const landed = node("div", "metric");
+  landed.title = glossaryText("landed");
   const landedValue = node("b");
   const provider = node("span", "provider " + verdictClass(entry));
   provider.textContent = entry.finalProvider || "—";
@@ -186,11 +190,11 @@ function renderLast(snap) {
   landed.append(landedValue, node("span", null, "实际落点"));
   grid.append(
     landed,
-    metric("钉住", entry.pinnedProvider || "—"),
-    metric("备选", fmtCount(entry.fallbackCount)),
-    metric("缓存命中", fmtCount(entry.cacheHitTokens)),
-    metric("成本", fmtCost(entry.cost)),
-    metric("次数", fmtCount(entry.requests)),
+    metric("钉住", entry.pinnedProvider || "—", null, "pinned"),
+    metric("备选", fmtCount(entry.fallbackCount), null, "fallbacks"),
+    metric("缓存命中", fmtCount(entry.cacheHitTokens), null, "cache"),
+    metric("成本", fmtCost(entry.cost), null, "cost"),
+    metric("次数", fmtCount(entry.requests), null, "count"),
   );
   frag.appendChild(grid);
   el.last.replaceChildren(frag);

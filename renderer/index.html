@@ -52,20 +52,24 @@
       <table>
         <thead>
           <tr>
-            <th class="col-time">时间</th>
-            <th class="col-model">模型</th>
-            <th>实际落点</th>
-            <th>钉住</th>
-            <th class="num">备选</th>
-            <th class="num">缓存命中</th>
-            <th class="num">成本</th>
-            <th>校验</th>
+            <th class="col-time" id="th-time">时间</th>
+            <th class="col-model" id="th-model">模型</th>
+            <th id="th-landed">实际落点</th>
+            <th id="th-pinned">钉住</th>
+            <th class="num" id="th-fallbacks">备选</th>
+            <th class="num" id="th-cache">缓存命中</th>
+            <th class="num" id="th-cost">成本</th>
+            <th id="th-verdict">校验</th>
           </tr>
         </thead>
         <tbody id="rows">
           <tr><td colspan="8" class="empty">还没有请求记录。</td></tr>
         </tbody>
       </table>
+      <details class="glossary" id="glossary">
+        <summary>这些词是什么意思？（点开看解释）</summary>
+        <dl id="glossary-list"></dl>
+      </details>
     </main>
 
     <footer class="foot">

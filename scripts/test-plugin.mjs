@@ -552,6 +552,34 @@ for (const script of ["renderer/view.js", "renderer/panel.js"]) {
   }
 }
 
+/* -------------------------------------------------------- glossary coverage */
+
+{
+  const sharedWindow = {};
+  new Function("window", readFileSync(`${REPO}/renderer/shared.js`, "utf8"))(sharedWindow);
+  const terms = sharedWindow.ClinePassPanel.TERMS;
+  const expected = ["upstream", "landed", "pinned", "fallbacks", "cache", "cost", "verdict", "count", "anchor", "names"];
+  const missing = expected.filter((key) => !terms.some((t) => t.key === key && t.label && t.text));
+  check(
+    "the glossary defines every word the panel shows",
+    missing.length === 0,
+    missing.length ? `missing ${missing.join(", ")}` : `${terms.length} terms`,
+  );
+
+  const zh = readFileSync(`${REPO}/README.md`, "utf8");
+  const en = readFileSync(`${REPO}/README.en.md`, "utf8");
+  check(
+    "both READMEs explain 上游 / 钉住 / openai-compatible-private",
+    ["上游", "钉住", "openai-compatible-private"].every((word) => zh.includes(word)) &&
+      ["upstream", "pinned", "openai-compatible-private"].every((word) => en.includes(word)),
+  );
+  check(
+    "the panel renders the glossary",
+    readFileSync(`${REPO}/renderer/index.html`, "utf8").includes('id="glossary-list"') &&
+      readFileSync(`${REPO}/renderer/panel.js`, "utf8").includes("renderGlossary()"),
+  );
+}
+
 /* ------------------------------------------------------- sync script targeting */
 
 // The sync script rewrites both providers by id. Exercise its real functions so a

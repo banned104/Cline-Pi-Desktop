@@ -21,6 +21,34 @@ You are done when the table shows a value like `fireworks` under **landed**.
 > For the full view (per-request table, model checkboxes, upstream probe and
 > anchoring) run **`ClinePass: 打开上游面板`**.
 
+## What those words mean
+
+**In one sentence**: ClinePass is only the front door. One model (say
+`cline-pass/kimi-k3`) is actually served by twenty-odd companies, and Cline picks
+one per request without telling you which. This plugin shows you the pick.
+
+Think of it as **one product with many warehouses**: same order, but which
+warehouse ships it, and whether a backup warehouse existed, is normally hidden.
+
+| Word | Meaning |
+| --- | --- |
+| **upstream** | the company that actually runs the model. `deepseek`, `fireworks`, `baseten`, `alibaba`, `novita`, `gmicloud`, `togetherai`… are third-party inference providers (they rent compute to serve open models). |
+| **`openai-compatible-private`** | the gateway's own **private lane**, not a public vendor. It usually comes with cost `$0` and `0` fallbacks — not an error. |
+| **landed** | which upstream served this request. The gateway's own `finalProvider`; not a guess by the plugin. |
+| **pinned** | the upstream the gateway **pinned** for this session. Normally equal to `landed`; when they differ something was downgraded or the pinned one did not answer. |
+| **fallbacks** | how many **other** upstreams this model could still fall back to. `0` = no safety net; `>0` = it can degrade elsewhere. |
+| **cache hit** | how many input tokens hit the provider's prompt cache (`promptCacheHitTokens`). `—` means the lane does not report it. |
+| **cost** | this request's spend: `marketCost` → `inferenceCost` → `cost`, first non-zero. **`cost` alone stays `$0`** on the private lane, which is why it is not used alone. |
+| **verdict: observe-only** | you named no target upstream, so there is nothing to compare. |
+| **verdict: matched** | you named a target and the request landed on it. |
+| **verdict: gateway ignored** | you named a target and it landed elsewhere — **the Cline gateway ignores that field**, measured; expected, not a misconfiguration. |
+| **verdict: no metadata** | the response carried no `routing` block (or was too large to read), so nothing can be judged. |
+| **count** | requests recorded for that model, persisted across restarts. |
+| **id rewrite (anchoring)** | landing is a function of *(key, model id)*: the same id always lands on the same upstream. Changing upstream therefore means changing the id to a same-family one that lands there (the dropdown on each row; **探测** probes first). **Cost**: you may get a different variant or quantization of the same family. |
+
+The table's **column headers carry the same text on hover**, and a collapsible
+"这些词是什么意思？" glossary below the table repeats it in place.
+
 ## Two providers, only one of them records
 
 | Provider | Request path | Records? | When to use |
