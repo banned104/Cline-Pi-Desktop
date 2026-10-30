@@ -278,6 +278,13 @@ node scripts/sync-clinepass.mjs --check   # report drift only
 node scripts/sync-clinepass.mjs           # rewrite manifest.json (both providers)
 ```
 
+Tests (plain Node; PI holds the plugin's 41892 while it runs, so the script moves
+the copy to its own port):
+
+```
+node scripts/test-plugin.mjs   # 36 checks: loopback endpoint, panel channels, routing parser, both renderer pages' real render()
+```
+
 Package with `PluginPack` (a store-only zip) — never with `zip` or `tar`.
 
 ## License

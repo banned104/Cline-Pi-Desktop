@@ -234,6 +234,12 @@ node scripts/sync-clinepass.mjs --check   # 只报告漂移
 node scripts/sync-clinepass.mjs           # 改写 manifest.json（两个 provider）
 ```
 
+测试（Node 直接跑；PI 运行时会占用插件的 41892，脚本会给副本换端口）：
+
+```
+node scripts/test-plugin.mjs   # 36 项：回环端点、面板通道、routing 解析、两个渲染页的真实 render()
+```
+
 打包含 `PluginPack`（store-only zip），不要用 `zip`/`tar`。
 
 ## 许可
